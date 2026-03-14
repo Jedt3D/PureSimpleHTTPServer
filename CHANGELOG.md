@@ -6,6 +6,28 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v0.4.0 — 2026-03-14 23:00
+
+### Phase D — Embedded Assets via CatchPack/UncompressPackMemory
+
+**Added**
+- `src/EmbeddedAssets.pbi` — `OpenEmbeddedPack(*packData=0, packSize.i=0)`, `ServeEmbeddedFile()`, `CloseEmbeddedPack()`
+  - `OpenEmbeddedPack()` with default 0,0 args returns `#False` (graceful no-pack fallback)
+  - `ServeEmbeddedFile()` decompresses directly by filename via `UncompressPackMemory()` with a 4 MB ceiling buffer
+  - `CloseEmbeddedPack()` releases the `CatchPack` handle; safe to call when no pack is open
+- `tests/test_embedded_assets.pb` — 4 unit tests: no-pack fallback, serve-without-open, close-harmless, invalid-pointer/size guard
+
+**Changed**
+- `src/main.pb` — `HandleRequest()` tries `ServeEmbeddedFile()` before `ServeFile()`; `Main()` calls `OpenEmbeddedPack()` / `CloseEmbeddedPack()` on startup/shutdown
+- `src/Global.pbi` — version bumped to 0.4.0
+
+**Design notes**
+- `g_EmbeddedPack.i` is a plain integer Global (safe in PureUnit — scalar, compiler-zeroed, no runtime init)
+- To embed assets: add `UseZipPacker()` + `DataSection webapp: IncludeBinary "webapp.zip" webappEnd: EndDataSection` in main.pb, then call `OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp)`
+- Without DataSection labels the default `OpenEmbeddedPack()` call returns `#False` and disk serving is used
+
+---
+
 ## v0.3.0 — 2026-03-14 22:00
 
 ### Phase C — Range Requests, Directory Listing, SPA Fallback, Hidden Paths, .gz Sidecars

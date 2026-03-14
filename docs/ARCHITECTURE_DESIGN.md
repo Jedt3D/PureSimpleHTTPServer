@@ -47,7 +47,7 @@ Logger.pbi ── Global.pbi
 
 All `XIncludeFile` paths are relative to the file containing the directive, so any module can be included from any location (including `tests/`) and its dependencies resolve correctly.
 
-## HTTP Request Lifecycle (Phase C — current)
+## HTTP Request Lifecycle (Phase D — current)
 
 ```
 Browser/client
