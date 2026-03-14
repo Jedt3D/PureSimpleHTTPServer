@@ -61,7 +61,7 @@ ConnectionThread  (one per request, runs concurrently)
   │
   ▼
 HandleRequest()  (main.pb)
-  │  clientIP = NetworkClientIP(connection)
+  │  clientIP = IPString(GetClientIP(connection))
   │  ParseHttpRequest(raw, req)  →  HttpRequest struct
   │  req\Method = "GET"
   │
@@ -85,28 +85,40 @@ HandleRequest()  (main.pb)
   └── LogAccess(method, path, status, 0, clientIP)  →  Logger.pbi (mutex-protected)
        │
        ▼
-  CloseNetworkConnection(client)
+  LockMutex(g_CloseMutex) → AddElement(g_CloseList, client) → UnlockMutex
+       │
+       ▼  (back on main thread, next event loop iteration)
+  CloseNetworkConnection(client)   ← MAIN THREAD ONLY (see design decision #11)
 ```
 
 ## Concurrency Model
 
 ```
 Main event loop  (single-threaded)
-  │  NewMap accum.s() — per-client byte accumulation (main-thread only, no mutex needed)
-  │  On \r\n\r\n found:
-  │    AllocateStructure(ThreadData)  →  {client, raw}
-  │    CreateThread(@ConnectionThread(), *td)
-  │    DeleteMapElement(accum(), clientKey)
   │
-  ├── ConnectionThread A  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
-  ├── ConnectionThread B  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
+  │  ① Drain close queue (every iteration, BEFORE NetworkServerEvent):
+  │      LockMutex(g_CloseMutex)
+  │      ForEach g_CloseList() → CloseNetworkConnection(id)
+  │      ClearList / UnlockMutex
+  │
+  │  ② NetworkServerEvent() → accumulate / dispatch / disconnect cleanup
+  │      NewMap accum.s() — per-client byte accumulation (main-thread only)
+  │      On \r\n\r\n found:
+  │        AllocateStructure(ThreadData)  →  {client, raw}
+  │        CreateThread(@ConnectionThread(), *td)
+  │        DeleteMapElement(accum(), clientKey)
+  │
+  ├── ConnectionThread A  →  HandleRequest() → LogAccess() → push to g_CloseList
+  ├── ConnectionThread B  →  HandleRequest() → LogAccess() → push to g_CloseList
   └── ...  (unbounded; falls back to synchronous if CreateThread fails)
 
 Shared state safety:
   - g_Handler, g_Config, g_EmbeddedPack : read-only after startup — no mutex needed
   - g_LogFile / WriteStringN()          : protected by g_LogMutex (created in OpenLogFile)
+  - g_CloseList                         : protected by g_CloseMutex (threads write, main reads)
   - NewMap accum                         : accessed from main loop only — no mutex needed
   - File / directory I/O                 : thread-safe under -t compiler flag
+  - CloseNetworkConnection()            : MAIN THREAD ONLY (see design decision #11)
 ```
 
 Compile with `-t` (thread-safe mode) is required for Phase E.
@@ -143,3 +155,4 @@ Without a `DataSection`, `OpenEmbeddedPack()` (called with default args 0, 0) re
 8. **Thread-per-connection data hand-off via `AllocateStructure`** — The main event loop captures the client ID and accumulated raw string into a `ThreadData` structure, spawns the thread, then deletes the map entry. The thread owns the structure and frees it via `FreeStructure` before processing, preventing any use-after-free and keeping the accum map main-thread-only.
 9. **Logger mutex pattern** — `g_LogMutex` is created once in `OpenLogFile()` and never freed; `LogAccess()` guards `WriteStringN()` with `LockMutex`/`UnlockMutex` to prevent interleaved log lines from concurrent handler threads.
 10. **Default root via `GetPathPart(ProgramFilename())`** — the default web root is `wwwroot/` next to the binary, not the working directory. This ensures consistent behaviour regardless of where the server is launched from.
+11. **`CloseNetworkConnection()` on the main thread only** — Calling it from worker threads races with `NetworkServerEvent()` on the main thread: both access PureBasic's internal connection table, causing heap corruption (`EXC_BAD_ACCESS`) under concurrent load. The fix is a mutex-protected close queue (`g_CloseMutex` / `g_CloseList`): threads push finished connection IDs; the main event loop drains the queue on every iteration before calling `NetworkServerEvent()`. Validated: `ab -n 1000 -c 10` completes without crash (was crashing at ~500–700 requests before fix).

@@ -6,6 +6,21 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.0.3 — 2026-03-15 02:00
+
+### Fix crash under concurrent load: move CloseNetworkConnection() to main thread
+
+**Fixed**
+- `src/TcpServer.pbi` — `CloseNetworkConnection(client)` was called from worker threads while the main thread was inside `NetworkServerEvent()`. Both access PureBasic's internal connection table, causing heap corruption and `EXC_BAD_ACCESS (SIGSEGV)` after ~500–700 requests with `ab -c 10`. Fix: worker threads now push the connection ID into `g_CloseList` (protected by `g_CloseMutex`); the main event loop drains the queue at the top of every iteration and calls `CloseNetworkConnection()` exclusively from the main thread.
+
+**Verified**
+- `ab -n 1000 -c 10 http://127.0.0.1:9999/` — 1000/1000 requests successful, no crash, mean 2 ms, 38 MB/s transfer rate
+
+**Pitfalls documented** (common-pitfalls.md #22)
+- `CloseNetworkConnection()` must only be called from the main thread (the thread running `NetworkServerEvent()`); calling it from worker threads races on PureBasic's internal connection table
+
+---
+
 ## v1.0.2 — 2026-03-15 01:00
 
 ### Fix compile error: replace `NetworkClientIP()` with `IPString(GetClientIP())`

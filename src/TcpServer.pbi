@@ -10,6 +10,12 @@
 ;   Shared read-only state (g_Handler, g_Config, g_EmbeddedPack) needs no mutex.
 ;   Logger uses its own mutex for safe concurrent log writes.
 ;
+;   IMPORTANT: CloseNetworkConnection() must only be called from the main thread.
+;   Calling it from worker threads races with NetworkServerEvent() on the main
+;   thread and corrupts PureBasic's internal connection table (SIGSEGV under load).
+;   Worker threads queue finished connection IDs into g_CloseList (protected by
+;   g_CloseMutex); the main event loop drains the queue on every iteration.
+;
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
 
 ; ConnectionHandlerProto — callback signature for HTTP request handlers
@@ -23,19 +29,30 @@ Global g_Handler.ConnectionHandlerProto
 ; g_Running — internal flag; set to #False by StopServer() to break event loop
 Global g_Running.i
 
+; g_CloseMutex / g_CloseList — thread-safe close queue
+; Worker threads push finished connection IDs here after sending the response.
+; The main event loop pops and calls CloseNetworkConnection() — main thread only.
+Global g_CloseMutex.i
+Global NewList g_CloseList.i()
+
 ; Per-connection data passed to the handler thread
 Structure ThreadData
   client.i
   raw.s
 EndStructure
 
-; ConnectionThread — handler thread: calls g_Handler then closes the connection
+; ConnectionThread — handler thread: calls g_Handler then queues connection for closure
 Procedure ConnectionThread(*data.ThreadData)
   Protected client.i = *data\client
   Protected raw.s    = *data\raw
   FreeStructure(*data)
   g_Handler(client, raw)
-  CloseNetworkConnection(client)
+  ; DO NOT call CloseNetworkConnection() here — it races with NetworkServerEvent()
+  ; on the main thread. Queue the ID instead; the main loop closes it safely.
+  LockMutex(g_CloseMutex)
+  AddElement(g_CloseList())
+  g_CloseList() = client
+  UnlockMutex(g_CloseMutex)
 EndProcedure
 
 ; StartServer(port.i) — create a TCP server and enter a blocking event loop
@@ -60,15 +77,25 @@ Procedure.i StartServer(port.i)
     ProcedureReturn #False
   EndIf
 
-  g_Running = #True
+  g_CloseMutex = CreateMutex()
+  g_Running    = #True
 
   *recvBuf = AllocateMemory(#RECV_BUFFER_SIZE)
   If Not *recvBuf
+    FreeMutex(g_CloseMutex)
     CloseNetworkServer(serverID)
     ProcedureReturn #False
   EndIf
 
   Repeat
+    ; --- Drain the close queue (main thread only) ---
+    LockMutex(g_CloseMutex)
+    ForEach g_CloseList()
+      CloseNetworkConnection(g_CloseList())
+    Next
+    ClearList(g_CloseList())
+    UnlockMutex(g_CloseMutex)
+
     event = NetworkServerEvent(serverID)
     Select event
       Case 0
@@ -110,6 +137,7 @@ Procedure.i StartServer(port.i)
 
   FreeMemory(*recvBuf)
   CloseNetworkServer(serverID)
+  FreeMutex(g_CloseMutex)
   ProcedureReturn #True
 EndProcedure
 

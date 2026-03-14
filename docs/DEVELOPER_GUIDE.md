@@ -143,6 +143,14 @@ Protected serverID.i = CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)
 event = NetworkServerEvent(serverID)
 ```
 
+### `CloseNetworkConnection()` must only be called from the main thread
+
+Calling `CloseNetworkConnection(client)` from a worker thread races with `NetworkServerEvent()` on the main thread. Both access PureBasic's internal connection table simultaneously, causing heap corruption and `EXC_BAD_ACCESS (SIGSEGV)` under concurrent load (~500+ requests with `-c 10`).
+
+**Fix:** Use a mutex-protected close queue. Worker threads push the connection ID; the main event loop drains the queue and calls `CloseNetworkConnection()` exclusively from the main thread. See `src/TcpServer.pbi` — `g_CloseMutex` / `g_CloseList` pattern.
+
+**Rule:** All PureBasic network functions that modify server state (`CloseNetworkConnection`, `CloseNetworkServer`) must be called from the same thread running `NetworkServerEvent()`.
+
 ### `NetworkClientIP()` does not exist — use `IPString(GetClientIP(Client))`
 ```purebasic
 ; WRONG — compile error: not a function

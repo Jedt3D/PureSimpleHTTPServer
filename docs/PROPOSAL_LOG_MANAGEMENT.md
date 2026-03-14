@@ -1,6 +1,6 @@
 # Proposal: Log Management — PureSimpleHTTPServer
 
-**Status:** Draft for review
+**Status:** Decisions captured — ready for implementation
 **Date:** 2026-03-15
 **Scope:** Access log format upgrade, error log introduction, log rotation
 
@@ -43,20 +43,20 @@ The industry standard. Accepted by every log analysis tool.
 | Client IP | `%h` | `IPString(GetClientIP(connection))` |
 | Ident | `%l` | Always `-` (ident protocol not implemented) |
 | Auth user | `%u` | Always `-` (HTTP auth not implemented) |
-| Timestamp | `%t` | `[DD/Mon/YYYY:HH:MM:SS +0000]` — UTC, using `FormatDate()` |
+| Timestamp | `%t` | `[DD/Mon/YYYY:HH:MM:SS +HHMM]` — local time + local UTC offset via `ApacheDate()` |
 | Request line | `"%r"` | `"METHOD /path HTTP/1.1"` from parsed request |
 | Status code | `%>s` | Actual HTTP status (200, 304, 404, etc.) |
-| Bytes sent | `%b` | Response body bytes, or `-` if zero |
+| Bytes sent | `%b` | Approximate file size in bytes, or `-` if zero/304 |
 | Referer | `"%{Referer}i"` | `GetHeader("Referer", req\RawHeaders)` or `-` |
 | User-Agent | `"%{User-Agent}i"` | `GetHeader("User-Agent", req\RawHeaders)` or `-` |
 
 **Timestamp format detail:**
-Apache uses `[DD/Mon/YYYY:HH:MM:SS ±HHMM]`, e.g. `[15/Mar/2026:14:32:00 +0000]`.
+Apache uses `[DD/Mon/YYYY:HH:MM:SS +HHMM]`, e.g. `[15/Mar/2026:14:32:00 +0700]`.
 Month abbreviations: Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec.
-`FormatDate()` does not produce abbreviated month names directly — a `Select/Case` lookup on `Month(Date())` is needed (same pattern as `DateHelper.pbi`).
+A new `ApacheDate()` function will be added using `FormatDate()` (local time) + the local UTC offset string (e.g. `+0700`). No `ImportC` required — see §9.1.
 
-**Implementation note on bytes:**
-`ServeFile()` currently returns `#True`/`#False`, not bytes sent. To log accurate byte counts, `ServeFile()` and `ServeEmbeddedFile()` would need to return the number of bytes written, or `HandleRequest()` would need to be passed a pointer to accumulate the count. The alternative is to log `-` for zero / unknown bytes (valid in CLF — `%b` uses `-` when zero bytes are sent, e.g. for 304 responses).
+**Byte count implementation:**
+`ServeFile()` already calls `FileSize()` internally. An optional output parameter `*bytesOut.i = 0` will be added so the caller receives the approximate byte count with zero extra overhead. `HandleRequest()` passes `@bytesOut` and logs the value (or `-` for 0/304 responses). This is valid CLF — `-` is correct for zero-body responses.
 
 ### 2.2 Error Log — Apache Error Log Format
 
@@ -73,24 +73,67 @@ Month abbreviations: Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec.
 [15/Mar/2026:14:33:01 +0000] [error] [pid 12345] Cannot open log file: /var/log/pshs/access.log
 ```
 
-**Log levels:**
+**Log levels (decided: configurable INFO / WARN / ERROR / NONE):**
 
-| Level | When to use |
-|-------|-------------|
-| `error` | 4xx/5xx responses, I/O failures, failed memory allocation |
-| `warn`  | Degraded behaviour (thread creation failed → sync fallback, log file not writable) |
-| `info`  | Server start/stop, config summary |
-| `debug` | Detailed per-request tracing (only when compiled with `-d`) |
+| Level | Integer | When to use |
+|-------|---------|-------------|
+| `info`  | 3 | Server start/stop, config summary, PID file written |
+| `warn`  | 2 | Degraded behaviour (thread fallback, log write failures) |
+| `error` | 1 | 4xx/5xx responses, I/O failures, memory allocation failures |
+| `none`  | 0 | Error log file disabled entirely |
+
+Only messages at or above `--log-level` are written to the error log file.
+Startup errors (before the log file is open) always print to stdout regardless of level.
 
 ---
 
 ## 3. Log Rotation Strategies
 
-Three complementary approaches are proposed. They are not mutually exclusive.
+All three built-in strategies will be implemented (decisions from §8):
 
-### 3.1 External Rotation via `logrotate` (Recommended for Linux/macOS)
+### 3.1 Size-Based Rotation (F-2)
 
-No code changes needed. Handled entirely by the OS log management daemon.
+The server rotates the log file automatically when it exceeds `--log-size` MB.
+
+**Behaviour:**
+1. On each `LogAccess()` or `LogError()` write, check `Lof(g_LogFile) >= g_LogMaxBytes` inside the mutex
+2. If over limit: rename `access.log` → `access.YYYYMMDD-HHMMSS.log`, open new `access.log`
+3. Delete archives beyond `--log-keep` count (oldest first)
+
+**Archive naming:** date-stamped to avoid conflicts with daily rotation:
+```
+access.log              ← current
+access.20260315-143200.log   ← rotated by size at 14:32:00
+access.20260314-000000.log   ← rotated by daily at midnight
+```
+
+**Pros:** Zero external dependencies, cross-platform (works on Windows).
+
+### 3.2 Daily Rotation (F-3)
+
+Background `LogRotationThread` wakes at midnight UTC and rotates both log files.
+
+**Behaviour:**
+- Thread sleeps until `SecondsToMidnightUTC()` seconds have elapsed
+- On wake: acquire log mutex → rename `access.log` → `access.YYYYMMDD-000000.log` → open new `access.log` → release mutex
+- Applies to both access log and error log
+- Old archives beyond `--log-keep` are deleted
+
+**Both daily + size rotation enabled simultaneously:**
+Both use the same date-stamped naming scheme and the same `--log-keep` limit, so they are fully compatible. The mutex prevents race conditions between the rotation thread and request handler threads.
+
+### 3.3 External Rotation via `logrotate` + SIGHUP (F-4)
+
+For deployments managed by systemd/init.d/supervisor that expect the standard `kill -HUP` protocol.
+
+**Flow:**
+```
+logrotate renames access.log → access.log.1 (with compress/delaycompress)
+logrotate sends SIGHUP to server process (via pid file)
+server catches SIGHUP → acquires log mutex → reopens access.log + error.log → releases mutex
+new log entries go to the new empty access.log
+logrotate compresses access.log.1 in the background
+```
 
 **`/etc/logrotate.d/puresimplehttpserver`:**
 ```
@@ -104,159 +147,119 @@ No code changes needed. Handled entirely by the OS log management daemon.
     notifempty
     sharedscripts
     postrotate
-        # Send SIGHUP to reopen log files after rotation
         kill -HUP $(cat /var/run/pshs.pid) 2>/dev/null || true
     endscript
 }
 ```
 
-**Requires:**
-Signal handling (SIGHUP) in the server — see §3.2.
-A PID file written at startup (e.g. `/var/run/pshs.pid`).
+**PureBasic implementation (macOS/Linux only):**
+A `SignalHandler.pbi` module installs a `SIGHUP` handler via `ImportC` calling `signal(SIGHUP, handler)`. The C handler sets a global integer flag `g_ReopenLogs`. The log write path checks this flag and reopens files when set.
 
-**Pros:** Battle-tested, cron-driven, compresses old logs, keeps N files automatically.
-**Cons:** Requires OS-level setup; not self-contained.
-
-### 3.2 Signal-Based Log Reopen (SIGHUP)
-
-The server catches `SIGHUP` and calls `CloseLogFile()` + `OpenLogFile()` to reopen both log files. This is the standard mechanism used by Apache, Nginx, and Caddy to support external rotation.
-
-```
-logrotate renames access.log → access.log.1
-logrotate sends SIGHUP to server
-server receives SIGHUP → reopens "access.log" (creates new empty file)
-logrotate compresses access.log.1
+```purebasic
+CompilerIf #PB_Compiler_OS = #PB_OS_Linux Or #PB_Compiler_OS = #PB_OS_MacOS
+  ImportC ""
+    signal(*signum, *handler)
+  EndImport
+  ; ... install handler at startup
+CompilerEndIf
 ```
 
-**PureBasic implementation:**
-Signal handling on macOS/Linux via a background thread polling `sigtimedwait()` or via `OnErrorCall()` — or more simply, a periodic check flag set by a `signal()` handler installed with inline C via `ImportC`.
-
-This is the most complex part of log management to implement in PureBasic (no built-in UNIX signal API). See §5 for implementation options.
-
-### 3.3 Built-in Size-Based Rotation
-
-The server rotates the log file automatically when it exceeds a configured size limit, requiring no external tools and working on all platforms including Windows.
-
-**Behaviour:**
-1. On each `LogAccess()` or `LogError()` call, check `Lof(g_LogFile) > g_LogMaxSize`
-2. If over limit: close current file, rename `access.log` → `access.log.1` (shifting older files), open new `access.log`
-3. Keep a configurable number of archived files (default: 5)
-
-**New CLI flags:**
-```
---log-size  <MB>   Rotate when log file exceeds N megabytes (default: 0 = disabled)
---log-keep  <N>    Number of rotated files to keep (default: 5)
-```
-
-**Example rotation sequence:**
-```
-access.log.4  →  deleted
-access.log.3  →  access.log.4
-access.log.2  →  access.log.3
-access.log.1  →  access.log.2
-access.log    →  access.log.1
-              →  new access.log
-```
-
-**Pros:** Zero external dependencies, cross-platform, self-contained.
-**Cons:** No compression; rotation happens mid-request (needs mutex); check on every write adds minor overhead.
-
-### 3.4 Built-in Time-Based Rotation
-
-The server rotates at midnight UTC, creating date-stamped archive files.
-
-**Behaviour:**
-- Background timer thread checks once per minute if the date has changed
-- On date change: close current file, rename to `access.2026-03-14.log`, open new `access.log`
-
-**New CLI flag:**
-```
---log-daily        Rotate access and error logs daily at midnight UTC
-```
-
-**Pros:** Predictable file sizes for daily traffic; archive filenames are human-readable.
-**Cons:** Requires a background thread; file accumulation without a keep-count limit.
+On Windows: SIGHUP does not exist. Built-in rotation (§3.1 + §3.2) handles Windows. No Windows-specific signal mechanism is planned.
 
 ---
 
-## 4. Proposed New CLI Flags
+## 4. Revised CLI Flags
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--log FILE` | existing | *(disabled)* | Access log file path (keep existing) |
+| `--log FILE` | existing | *(disabled)* | Access log file path |
 | `--error-log FILE` | new | *(disabled)* | Error log file path |
-| `--log-format FORMAT` | new | `combined` | `combined` \| `common` \| `custom` |
-| `--log-size MB` | new | `0` | Size-based rotation threshold in MB (0 = off) |
-| `--log-keep N` | new | `5` | Max rotated files to keep (for size rotation) |
-| `--log-daily` | new | off | Time-based daily rotation at midnight UTC |
-| `--pid-file FILE` | new | *(none)* | Write PID to FILE on startup (needed for logrotate postrotate) |
+| `--log-level LEVEL` | new | `warn` | Minimum error log level: `info` \| `warn` \| `error` \| `none` |
+| `--log-size MB` | new | `100` | Rotate when log file exceeds N MB; 0 = disabled |
+| `--log-keep N` | new | `30` | Max rotated archive files to keep |
+| `--log-daily` | new | on† | Rotate access + error logs daily at midnight UTC |
+| `--pid-file FILE` | new | *(none)* | Write server PID to FILE on startup (required for logrotate) |
+
+† `--log-daily` is on by default when `--log` or `--error-log` is set. Pass `--log-daily=off` to disable.
+
+**Removed from original proposal:**
+- `--log-format FORMAT` — Combined Log Format is decided; no runtime selection needed.
 
 ---
 
 ## 5. Implementation Plan
 
-### Phase F-1 — Format & Error Log (no rotation)
+All four phases are now **required** (not optional).
 
-**Effort: medium**
+### Phase F-1 — Apache Format + Error Log + Log Level
 
-Changes:
-1. **`src/Logger.pbi`** — rewrite `LogAccess()` to emit Combined Log Format; add `LogError(level.s, message.s)` for the error log; separate file handles `g_AccessLogFile` / `g_ErrorLogFile`; add `OpenErrorLog(path.s)` / `CloseErrorLog()`
-2. **`src/DateHelper.pbi`** or `Logger.pbi` — add `ApacheDate(ts.q)` returning `[DD/Mon/YYYY:HH:MM:SS +0000]` (Select/Case month abbreviation lookup)
-3. **`src/FileServer.pbi`** — call `LogError("error", ...)` on 404/403/500 instead of returning silently
-4. **`src/Config.pbi`** — add `ErrorLogFile.s` field to `ServerConfig`; parse `--error-log` flag
-5. **`src/main.pb`** — open/close error log; pass actual HTTP status from `ServeFile()` (change return type to status code integer)
-6. **`tests/test_logger.pb`** — new tests for Combined Log Format line structure, `LogError()` format
+**Effort: medium** | **Prerequisite for all other phases**
 
-**Signature change for `ServeFile()`:**
-Return the actual HTTP status code (200, 206, 304, 403, 404, 500) instead of `#True`/`#False`. This is a breaking change to the internal API — all callers in `main.pb` must be updated, but there are no external users of this function.
+1. `src/Logger.pbi`
+   - Rewrite `LogAccess()` → Combined Log Format
+   - Add `ApacheDate(ts.q)` for UTC timestamp formatting (see §9.1)
+   - Add separate `g_ErrorLogFile.i` handle and `g_LogLevel.i`
+   - Add `OpenErrorLog(path.s)`, `CloseErrorLog()`, `LogError(level.s, message.s)`
+   - Keep existing `g_LogMutex` covering both file handles
+2. `src/FileServer.pbi`
+   - Call `LogError("error", ...)` on 404 / 403 / 500
+   - Add optional `*bytesOut.i = 0` output parameter to `ServeFile()`
+3. `src/Config.pbi`
+   - Add `ErrorLogFile.s`, `LogLevel.i`, `LogSizeMB.i`, `LogKeepCount.i`, `LogDaily.i`, `PidFile.s` to `ServerConfig`
+   - Parse new flags
+4. `src/main.pb`
+   - Open/close error log; pass `@bytesOut` through `HandleRequest()`
+5. `tests/test_logger.pb`
+   - New tests: Combined Log Format structure, UTC timestamp format, `LogError()` format, log level filtering
 
 ### Phase F-2 — Size-Based Rotation
 
 **Effort: small–medium**
 
-Changes:
-1. **`src/Logger.pbi`** — add `RotateLogIfNeeded(path.s, *file.i, maxBytes.i, keepCount.i)` helper; call from `LogAccess()` and `LogError()` inside the mutex lock
-2. **`src/Config.pbi`** — add `LogMaxSizeMB.i`, `LogKeepCount.i` fields; parse `--log-size` and `--log-keep`
-3. **`tests/test_logger.pb`** — test rotation trigger and file renaming
+1. `src/Logger.pbi`
+   - Add `RotateIfNeeded(*fileHandle.i, path.s)` — rename to date-stamped archive, open new file, delete oldest if over `--log-keep`; called inside mutex from `LogAccess()` and `LogError()`
+2. `tests/test_logger.pb`
+   - Test rotation trigger (mock large file size), archive naming, keep-count enforcement
 
 ### Phase F-3 — Daily Rotation + PID File
 
 **Effort: medium**
 
-Changes:
-1. **`src/Logger.pbi`** — add background `LogRotationThread` that sleeps until next midnight and renames files
-2. **`src/Config.pbi`** — add `LogDaily.i`, `PidFile.s`; parse `--log-daily`, `--pid-file`
-3. **`src/main.pb`** — write PID file on startup, delete on shutdown
+1. `src/Logger.pbi`
+   - Add `LogRotationThread(*unused)` — background thread, sleeps to next midnight UTC, calls `RotateIfNeeded()` for both log files
+   - Start thread in `OpenLogFile()` when `g_LogDaily = #True`; stop on `CloseLogFile()`
+2. `src/main.pb`
+   - Write PID file at startup: `CreateFile` → `WriteString(Str(GetCurrentProcessID()))` → `CloseFile`
+   - Delete PID file at shutdown
 
-### Phase F-4 — SIGHUP Log Reopen (Linux/macOS only)
+### Phase F-4 — SIGHUP Log Reopen
 
-**Effort: high**
+**Effort: high** | **Linux/macOS only**
 
-Changes:
-1. **`src/SignalHandler.pbi`** (new) — install `SIGHUP` handler using PureBasic's `ImportC` block to call `signal(SIGHUP, handler)` with a C shim; set a global flag `g_ReopenLogs.i`
-2. **`src/Logger.pbi`** — check `g_ReopenLogs` flag in the log write path; if set, reopen both log files and clear the flag
-3. **`src/Config.pbi`** — `--pid-file` (shared with Phase F-3)
-4. **`CompilerIf #PB_Compiler_OS = #PB_OS_Linux Or #PB_Compiler_OS = #PB_OS_MacOS`** — guard all signal code
-
----
-
-## 6. Recommended Implementation Order
-
-| Priority | Phase | What you get |
-|----------|-------|-------------|
-| **High** | F-1 | Standard log format compatible with GoAccess, AWStats, fail2ban; visible error log |
-| **Medium** | F-2 | Self-contained rotation, works on all platforms, no external dependencies |
-| **Low** | F-3 | Daily named archives; clean disk usage without manual cron |
-| **Optional** | F-4 | Full logrotate integration; only needed for systemd/init.d deployments |
-
-For a self-contained single-binary server, **F-1 + F-2** covers the majority of real-world needs.
-F-4 (SIGHUP) is only worth the complexity if the server will be managed by a system daemon that expects the standard `kill -HUP` reload protocol.
+1. `src/SignalHandler.pbi` (new)
+   - `InstallSignalHandlers()` / `RemoveSignalHandlers()` — guarded by `CompilerIf`
+   - Sets global `g_ReopenLogs.i` flag on SIGHUP
+2. `src/Logger.pbi`
+   - Check `g_ReopenLogs` at top of `LogAccess()` / `LogError()`; if set, reopen both files and clear flag (inside mutex)
+3. `src/main.pb`
+   - Call `InstallSignalHandlers()` before `StartServer()`
 
 ---
 
-## 7. Log Analysis Tooling (no server changes needed after F-1)
+## 6. Revised Implementation Order
 
-Once the Combined Log Format is in place:
+All phases required; recommended sequence:
+
+| Step | Phase | Delivers |
+|------|-------|----------|
+| 1 | F-1 | Combined Log Format, error log, log level filtering — makes logs useful immediately |
+| 2 | F-2 | Size-based rotation (1 GB default, 30 archives) — prevents disk fill |
+| 3 | F-3 | Daily rotation at midnight UTC + PID file — predictable daily archives |
+| 4 | F-4 | SIGHUP + logrotate integration — for systemd/init.d deployments |
+
+---
+
+## 7. Log Analysis Tooling (available after F-1)
 
 ```bash
 # Real-time dashboard (GoAccess — macOS: brew install goaccess)
@@ -277,11 +280,72 @@ awk '{print $1}' access.log | sort -u | wc -l
 
 ---
 
-## 8. Open Questions for Review
+## 8. Decisions Summary
 
-1. **Byte count accuracy** — Should `ServeFile()` return the actual bytes sent (requires API change), or is `-` acceptable for 304/empty responses and approximate for others?
-2. **Timestamp timezone** — UTC (`+0000`) always, or local timezone? Apache defaults to local time; UTC is safer for distributed analysis.
-3. **Rotation scope** — Is size-based rotation (F-2) sufficient, or is daily rotation (F-3) also needed from the start?
-4. **SIGHUP priority** — Is logrotate integration (F-4) required, or will manual restart / size-based rotation suffice?
-5. **Error log verbosity** — Should `info`-level entries (server start/stop, config echo) go to the error log, or to stdout only?
-6. **Windows compatibility** — F-4 (SIGHUP) is Linux/macOS only. Is Windows a target platform for production deployments?
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Byte count accuracy | **Approximate** (file size from existing `FileSize()` call, `-` for 304/empty) |
+| 2 | Timestamp timezone | **Local time** with correct UTC offset string (e.g. `+0700`). No `ImportC` needed. |
+| 3 | Rotation scope | **Daily + size-based, both required from start.** Default size: **100 MB** |
+| 4 | SIGHUP priority | **Required.** Built-in daily + size rotation + SIGHUP all implemented |
+| 5 | Error log verbosity | **Configurable:** `info` / `warn` / `error` / `none` via `--log-level` |
+| 6 | Windows compatibility | **Required but lower priority** than Linux/macOS |
+
+---
+
+## 9. Concerns & Clarifications
+
+### 9.1 ⚠️ UTC Timestamps Require Platform-Specific Code
+
+**Issue:** PureBasic's `FormatDate()` formats using the *local* timezone, not UTC. Simply writing `+0000` in the format string would be misleading if the server runs in a non-UTC timezone.
+
+**Required solution:** A new `ApacheDate()` helper that calls the OS UTC time API via `ImportC`:
+- **macOS/Linux:** `gmtime_r()` (POSIX, always available)
+- **Windows:** `GetSystemTime()` (Win32)
+
+This adds ~10 lines of platform-guarded `ImportC` code to `DateHelper.pbi` or `Logger.pbi`. Without this, logs would silently contain local timestamps labelled as UTC — a subtle but harmful bug for log analysis across timezone-aware systems.
+
+**Risk if deferred:** Accepting local time is valid (Apache itself defaults to local time). If `ImportC` complexity is unwanted, local time + correct timezone offset string (e.g. `+0700`) is a safe fallback.
+
+**Decision:** Use **local time** with the correct local timezone offset string. No `ImportC` required. `ApacheDate()` will call `FormatDate()` and append the local UTC offset (e.g. `+0700`). This avoids all platform-specific code while keeping the timestamp honest.
+
+### 9.2 ⚠️ 1 GB Default Size Is Very Large
+
+**Issue:** The decided default of 1 GB per log file means the server could write for days or weeks before rotating on low-traffic deployments — and for only hours on busy ones. At ~500 bytes per CLF line:
+- 1 GB ≈ **2 million log entries**
+- At 100 req/s: fills in ~5.5 hours
+- At 1 req/min: fills in ~7 months
+
+**Concern:** A 1 GB unrotated log is large to tail, grep, or transfer. Standard production defaults:
+- Apache httpd default via logrotate: weekly, no size limit
+- Nginx: `10m` (10 MB) via `logrotate`
+- Caddy: 100 MB
+
+**Decision:** Default changed to **100 MB**. `--log-size 100` in `LoadDefaults()`. Still overridable via `--log-size N`.
+
+### 9.3 ℹ️ "Automatically Restart" Clarified as "Auto-Rotate"
+
+The answer to Q4 says "automatically restart." For clarity: the server process itself does **not** restart. Only the log file handles are closed and reopened (the server keeps running and serving requests throughout). The term is "rotate" or "reopen." No implementation impact — just confirming the interpretation.
+
+### 9.4 ℹ️ `--log-level none` Scope
+
+**Clarification:** `--log-level none` disables writing to the **error log file** only. Startup messages, startup errors, and the `WARNING: Cannot open log file` notice always print to `stdout` regardless of level — otherwise a misconfigured server could fail silently with no indication of the problem.
+
+**Recommendation:** Document this clearly in `USAGE_GUIDE.md`.
+
+### 9.5 ℹ️ Default `--log-level` Set to `warn`
+
+The decided configurable range is `info / warn / error / none`. The default should be `warn` (not `info` and not `error`):
+- `info` would log every server start/stop — noisy for long-running services
+- `error` would miss degraded-but-recoverable states (e.g. thread fallback)
+- `warn` is the Apache httpd default and a reasonable balance
+
+### 9.6 ℹ️ `--log-daily` Default Behaviour
+
+When `--log` or `--error-log` is given, daily rotation is enabled by default (no extra flag needed). Users who want size-only rotation must pass `--no-log-daily`. This is the most ergonomic default given that daily rotation was decided as a baseline requirement.
+
+### 9.7 ℹ️ Windows and SIGHUP
+
+On Windows, F-4 (SIGHUP) will be compiled out via `CompilerIf`. Windows users rely on F-2 (size rotation) and F-3 (daily rotation) exclusively. `logrotate` is not available on Windows, so the `--pid-file` flag is Linux/macOS only.
+
+No action needed — just confirming the Windows behaviour is intentional.

@@ -13,7 +13,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | B | v0.2.0 | Static file serving from disk | ✅ Done |
 | C | v0.3.0 | Directory listing, SPA fallback, Range requests | ✅ Done |
 | D | v0.4.0 | Embedded assets (IncludeBinary + CatchPack) | ✅ Done |
-| E | v1.0.0 | Thread-per-connection, access log, full CLI | ✅ Done |
+| E | v1.0.3 | Thread-per-connection, access log, full CLI | ✅ Done |
 
 ## Build
 
@@ -60,5 +60,21 @@ cd tests
 ```
 
 70 unit tests across 11 test files. All tests pass.
+
+## Load Testing
+
+Verified with Apache Bench on macOS ARM64 (Apple M4 Pro):
+
+```bash
+ab -n 1000 -c 10 http://127.0.0.1:8080/
+```
+
+| Metric | Result |
+|--------|--------|
+| Requests | 1000 / 1000 (no failures) |
+| Concurrency | 10 simultaneous connections |
+| Mean response time | 2 ms |
+| Transfer rate | ~38 MB/s |
+| Crashes | None |
 
 See [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for full developer documentation.
