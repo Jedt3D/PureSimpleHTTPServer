@@ -27,7 +27,7 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 
 ```bash
 ./PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa] [--log FILE]
-# Default port: 8080, root: current directory
+# Default port: 8080, root: wwwroot/ next to the binary
 # Legacy: ./PureSimpleHTTPServer [port]
 ```
 

@@ -10,7 +10,7 @@
 ; LoadDefaults(*cfg.ServerConfig) — populate config with default values
 Procedure LoadDefaults(*cfg.ServerConfig)
   *cfg\Port           = #DEFAULT_PORT
-  *cfg\RootDirectory  = GetCurrentDirectory()
+  *cfg\RootDirectory  = GetPathPart(ProgramFilename()) + "wwwroot"
   *cfg\IndexFiles     = "index.html,index.htm"
   *cfg\BrowseEnabled  = #False
   *cfg\SpaFallback    = #False
