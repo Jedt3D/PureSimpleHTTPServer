@@ -77,8 +77,10 @@ Procedure Main()
     End 1
   EndIf
 
-  ; Apply log level from config
-  g_LogLevel = g_Config\LogLevel
+  ; Apply log settings from config
+  g_LogLevel     = g_Config\LogLevel
+  g_LogMaxBytes  = g_Config\LogSizeMB * 1024 * 1024
+  g_LogKeepCount = g_Config\LogKeepCount
 
   ; To embed assets: add UseZipPacker() + DataSection (webapp: IncludeBinary "webapp.zip" webappEnd:)
   ; then call OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp) here.

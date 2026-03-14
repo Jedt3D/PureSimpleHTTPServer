@@ -6,6 +6,28 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.2.0 — 2026-03-15 04:00
+
+### Phase F-2 — Size-Based Log Rotation
+
+**Added**
+- `src/Logger.pbi` — size-based rotation for both access log and error log:
+  - `RotationStamp()` — generates `YYYYMMDD-HHMMSS-NNN` stamp (NNN = per-process sequence ensures archive uniqueness within the same second)
+  - `PruneArchives(logPath.s)` — scans the log directory for date-stamped archives matching `stem.YYYYMMDD-HHMMSS[-NNN].ext`; deletes oldest files beyond `g_LogKeepCount` (oldest-first, sorted alphabetically = chronologically)
+  - `RotateLog(*fh, logPath.s)` — flushes and closes the current file, renames to archive, opens new file, then calls `PruneArchives`; called inside `g_LogMutex`
+  - New globals: `g_LogPath`, `g_ErrorLogPath` (saved by `Open*` functions for rotation); `g_LogMaxBytes`, `g_LogKeepCount`, `g_RotationSeq`
+  - Rotation check in `LogAccess()` and `LogError()`: `FlushFileBuffers` + `Lof()` check inside mutex before write; skipped when `g_LogMaxBytes = 0`
+  - `ExamineDirectory` ID 1 used for pruning (ID 0 reserved for `BuildDirectoryListing`)
+
+**Changed**
+- `src/main.pb` — sets `g_LogMaxBytes = cfg\LogSizeMB * 1024 * 1024` and `g_LogKeepCount = cfg\LogKeepCount` at startup
+
+**Tests**
+- `tests/test_logger.pb` — 15 → 19 tests; 4 new rotation tests: archive created, archive name has `YYYYMMDD-HHMMSS` stamp, oldest archives pruned to keep-count, rotation disabled when `g_LogMaxBytes = 0`
+- 82 unit tests across 11 files; all pass
+
+---
+
 ## v1.1.0 — 2026-03-15 03:00
 
 ### Phase F-1 — Apache Combined Log Format, Error Log, Log Level Filtering

@@ -5,6 +5,7 @@
 ;           ApacheDate()
 ;
 ; Phase F-1: Apache Combined Log Format access log + error log + log level filtering
+; Phase F-2: Size-based log rotation with date-stamped archives and keep-count pruning
 ;
 ; Access log format (CLF Combined):
 ;   IP - - [DD/Mon/YYYY:HH:MM:SS +HHMM] "METHOD /path PROTO" STATUS BYTES "Referer" "UA"
@@ -15,19 +16,31 @@
 ; Log levels: none=0  error=1  warn=2  info=3  (default threshold: 2=warn)
 ;   A message is written if its level integer <= g_LogLevel threshold.
 ;
+; Rotation (F-2):
+;   When log size >= g_LogMaxBytes (0 = disabled), the log is renamed to a
+;   date-stamped archive and a fresh file is opened. Old archives beyond
+;   g_LogKeepCount are deleted (oldest first). Archive format:
+;     stem.YYYYMMDD-HHMMSS-NNN.ext  (NNN = per-process sequence, ensures uniqueness)
+;
 ; Thread safety: g_LogMutex covers both log file handles; all writes are mutex-guarded.
+;   Rotation is performed inside the mutex before the write.
 ; Timezone: local time + local UTC offset computed once at first log open via
 ;   Date() - ConvertDate(Date(), #PB_Date_UTC) — no ImportC required.
 ;
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
 
 ; --- Globals ---
-Global g_LogFile.i      = 0   ; access log file handle (0 = not open)
-Global g_ErrorLogFile.i = 0   ; error log file handle (0 = not open)
-Global g_LogMutex.i     = 0   ; single mutex covering both log files
-Global g_LogLevel.i     = 2   ; min error log level (0=none 1=error 2=warn 3=info)
-Global g_ServerPID.i    = 0   ; server process ID (set by main.pb; 0 until F-3)
-Global g_TZOffset.s             ; local UTC offset string e.g. "+0700" (lazy-init)
+Global g_LogFile.i       = 0   ; access log file handle (0 = not open)
+Global g_ErrorLogFile.i  = 0   ; error log file handle (0 = not open)
+Global g_LogMutex.i      = 0   ; single mutex covering both log files
+Global g_LogLevel.i      = 2   ; min error log level (0=none 1=error 2=warn 3=info)
+Global g_ServerPID.i     = 0   ; server process ID (set by main.pb; 0 until F-3)
+Global g_TZOffset.s              ; local UTC offset string e.g. "+0700" (lazy-init)
+Global g_LogPath.s       = ""  ; access log file path (saved for rotation)
+Global g_ErrorLogPath.s  = ""  ; error log file path (saved for rotation)
+Global g_LogMaxBytes.i   = 0   ; rotation threshold in bytes; 0 = disabled
+Global g_LogKeepCount.i  = 30  ; max rotated archive files to keep per log
+Global g_RotationSeq.i   = 0   ; per-process sequence counter for archive uniqueness
 
 ; --- Internal helpers ---
 
@@ -62,6 +75,99 @@ Procedure.i OpenOrAppend(path.s)
   ProcedureReturn fh
 EndProcedure
 
+; RotationStamp() — return "YYYYMMDD-HHMMSS-NNN" for archive naming
+; NNN is a per-process sequence number ensuring uniqueness within a second.
+Procedure.s RotationStamp()
+  Protected ts.q = Date()
+  g_RotationSeq + 1
+  ProcedureReturn FormatDate("%yyyy%mm%dd", ts) + "-" + FormatDate("%hh%ii%ss", ts) +
+                  "-" + RSet(Str(g_RotationSeq), 3, "0")
+EndProcedure
+
+; PruneArchives(logPath.s) — delete oldest date-stamped archives beyond g_LogKeepCount
+; logPath: the active log file path (used to derive stem and extension for matching).
+; Must be called inside g_LogMutex (via RotateLog).
+Procedure PruneArchives(logPath.s)
+  If g_LogKeepCount <= 0 : ProcedureReturn : EndIf
+
+  Protected dir.s       = GetPathPart(logPath)
+  Protected base.s      = GetFilePart(logPath)
+  Protected ext.s       = LCase(GetExtensionPart(base))
+  Protected stemLen.i   = Len(base) - Bool(ext <> "") * (Len(ext) + 1)
+  Protected stem.s      = Left(base, stemLen)
+  Protected prefix.s    = stem + "."
+  Protected suffix.s    = ""
+  If ext <> "" : suffix = "." + ext : EndIf
+  Protected prefixLen.i = Len(prefix)
+  Protected suffixLen.i = Len(suffix)
+
+  Protected NewList archives.s()
+  Protected name.s, mid.s
+
+  If ExamineDirectory(1, dir, "*")
+    While NextDirectoryEntry(1)
+      If DirectoryEntryType(1) = #PB_DirectoryEntry_File
+        name = DirectoryEntryName(1)
+        ; Archive name: prefix + stamp (>=15 chars) + suffix
+        If Len(name) > prefixLen + 14 + suffixLen
+          If Left(name, prefixLen) = prefix
+            If suffix = "" Or Right(name, suffixLen) = suffix
+              mid = Mid(name, prefixLen + 1, Len(name) - prefixLen - suffixLen)
+              ; Stamp validation: at least 15 chars, position 9 must be "-"
+              If Len(mid) >= 15 And Mid(mid, 9, 1) = "-"
+                AddElement(archives())
+                archives() = dir + name
+              EndIf
+            EndIf
+          EndIf
+        EndIf
+      EndIf
+    Wend
+    FinishDirectory(1)
+  EndIf
+
+  SortList(archives(), #PB_Sort_Ascending)
+
+  Protected excess.i = ListSize(archives()) - g_LogKeepCount
+  If excess > 0
+    FirstElement(archives())
+    Protected i.i
+    For i = 1 To excess
+      DeleteFile(archives())
+      NextElement(archives())
+    Next i
+  EndIf
+
+  FreeList(archives())
+EndProcedure
+
+; RotateLog(*fh, logPath.s) — close the current log, rename to archive, open new file
+; *fh: address of g_LogFile or g_ErrorLogFile (untyped pointer; use PeekI/PokeI).
+; Must be called inside g_LogMutex.
+Procedure RotateLog(*fh, logPath.s)
+  Protected fh.i = PeekI(*fh)
+  If fh > 0
+    FlushFileBuffers(fh)
+    CloseFile(fh)
+    PokeI(*fh, 0)
+  EndIf
+
+  Protected dir.s  = GetPathPart(logPath)
+  Protected base.s = GetFilePart(logPath)
+  Protected ext.s  = LCase(GetExtensionPart(base))
+  Protected stem.s = Left(base, Len(base) - Bool(ext <> "") * (Len(ext) + 1))
+  Protected archive.s
+  If ext <> ""
+    archive = dir + stem + "." + RotationStamp() + "." + ext
+  Else
+    archive = dir + stem + "." + RotationStamp()
+  EndIf
+
+  RenameFile(logPath, archive)
+  PokeI(*fh, CreateFile(#PB_Any, logPath))
+  PruneArchives(logPath)
+EndProcedure
+
 ; --- Public API ---
 
 ; ApacheDate(ts.q) — format a PureBasic date as [DD/Mon/YYYY:HH:MM:SS +HHMM]
@@ -83,6 +189,7 @@ Procedure.i OpenLogFile(path.s)
     CloseFile(g_LogFile)
     g_LogFile = 0
   EndIf
+  g_LogPath = path
   g_LogFile = OpenOrAppend(path)
   ProcedureReturn Bool(g_LogFile > 0)
 EndProcedure
@@ -105,6 +212,7 @@ Procedure.i OpenErrorLog(path.s)
     CloseFile(g_ErrorLogFile)
     g_ErrorLogFile = 0
   EndIf
+  g_ErrorLogPath = path
   g_ErrorLogFile = OpenOrAppend(path)
   ProcedureReturn Bool(g_ErrorLogFile > 0)
 EndProcedure
@@ -122,6 +230,8 @@ EndProcedure
 ; LogAccess(ip, method, path, protocol, status, bytes, referer, userAgent)
 ; Append one Combined Log Format line to the access log.
 ; No-op if no access log file is open.
+; Rotation: if g_LogMaxBytes > 0 and the log file meets or exceeds the threshold,
+;   the file is rotated before this line is written.
 ;
 ; bytes   : body bytes sent; pass 0 for 304/empty responses (logged as "-")
 ; referer : Referer header value, or "" (logged as "-")
@@ -143,15 +253,24 @@ Procedure LogAccess(ip.s, method.s, path.s, protocol.s, status.i, bytes.i, refer
                      " " + Chr(34) + ua  + Chr(34)
 
   LockMutex(g_LogMutex)
-  WriteStringN(g_LogFile, line, #PB_Ascii)
+  If g_LogMaxBytes > 0
+    FlushFileBuffers(g_LogFile)
+    If Lof(g_LogFile) >= g_LogMaxBytes
+      RotateLog(@g_LogFile, g_LogPath)
+    EndIf
+  EndIf
+  If g_LogFile > 0
+    WriteStringN(g_LogFile, line, #PB_Ascii)
+  EndIf
   UnlockMutex(g_LogMutex)
 EndProcedure
 
 ; LogError(level.s, message.s) — append one error log line
 ; level: "error" | "warn" | "info"
-; No-op if no error log file is open, or if level is below g_LogLevel threshold.
+; No-op if no error log file is open, or if level is above g_LogLevel threshold.
 ; Level integers: error=1  warn=2  info=3
 ; A message is written when its integer <= g_LogLevel (e.g. threshold=2 logs error+warn).
+; Rotation: same size-based policy as LogAccess, applied to the error log file.
 Procedure LogError(level.s, message.s)
   If g_ErrorLogFile = 0
     ProcedureReturn
@@ -173,6 +292,14 @@ Procedure LogError(level.s, message.s)
                      Str(g_ServerPID) + "] " + message
 
   LockMutex(g_LogMutex)
-  WriteStringN(g_ErrorLogFile, line, #PB_Ascii)
+  If g_LogMaxBytes > 0
+    FlushFileBuffers(g_ErrorLogFile)
+    If Lof(g_ErrorLogFile) >= g_LogMaxBytes
+      RotateLog(@g_ErrorLogFile, g_ErrorLogPath)
+    EndIf
+  EndIf
+  If g_ErrorLogFile > 0
+    WriteStringN(g_ErrorLogFile, line, #PB_Ascii)
+  EndIf
   UnlockMutex(g_LogMutex)
 EndProcedure

@@ -1,5 +1,6 @@
 ; test_logger.pb — Unit tests for Logger.pbi
 ; Phase F-1: CLF access log, error log, ApacheDate, log level filtering
+; Phase F-2: Size-based rotation, archive naming, keep-count pruning
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 
@@ -16,6 +17,8 @@ EndProcedureUnit
 ProcedureUnitShutdown teardown()
   CloseLogFile()
   CloseErrorLog()
+  g_LogMaxBytes  = 0   ; restore: don't leave rotation enabled for other tests
+  g_LogKeepCount = 30
   DeleteFile(g_TmpLog)
   DeleteFile(g_TmpErrLog)
 EndProcedureUnit
@@ -179,6 +182,152 @@ ProcedureUnit Logger_LogError_LevelFilter_AboveThreshold_Skipped()
   DeleteFile(tmpLog)
 
   Assert(size = 0, "info-level message should be skipped when threshold=warn (file stays empty)")
+EndProcedureUnit
+
+; --- Rotation (F-2) ---
+
+; CountArchives(dir.s, stem.s, ext.s) — count date-stamped archive files in dir
+; Used by rotation tests to verify archive creation and pruning.
+Procedure.i CountArchives(dir.s, stem.s, ext.s)
+  Protected prefix.s   = stem + "."
+  Protected suffix.s   = ""
+  If ext <> "" : suffix = "." + LCase(ext) : EndIf
+  Protected prefixLen.i = Len(prefix)
+  Protected suffixLen.i = Len(suffix)
+  Protected count.i = 0, name.s, mid.s
+
+  If ExamineDirectory(2, dir, "*")
+    While NextDirectoryEntry(2)
+      If DirectoryEntryType(2) = #PB_DirectoryEntry_File
+        name = DirectoryEntryName(2)
+        If Len(name) > prefixLen + 14 + suffixLen
+          If Left(name, prefixLen) = prefix
+            If suffix = "" Or Right(name, suffixLen) = suffix
+              mid = Mid(name, prefixLen + 1, Len(name) - prefixLen - suffixLen)
+              If Len(mid) >= 15 And Mid(mid, 9, 1) = "-"
+                count + 1
+              EndIf
+            EndIf
+          EndIf
+        EndIf
+      EndIf
+    Wend
+    FinishDirectory(2)
+  EndIf
+  ProcedureReturn count
+EndProcedure
+
+ProcedureUnit Logger_Rotation_CreatesArchive()
+  Protected tmpLog.s = GetTemporaryDirectory() + "pshs_rot_t1.log"
+  Protected dir.s    = GetTemporaryDirectory()
+  DeleteFile(tmpLog)
+  g_LogMaxBytes  = 1     ; 1-byte threshold: any write triggers rotation on next call
+  g_LogKeepCount = 10
+  OpenLogFile(tmpLog)
+  LogAccess("1.2.3.4", "GET", "/a", "HTTP/1.1", 200, 100, "", "")  ; fill the file
+  LogAccess("1.2.3.4", "GET", "/b", "HTTP/1.1", 200, 100, "", "")  ; triggers rotation
+  CloseLogFile()
+  g_LogMaxBytes = 0
+
+  Protected archives.i = CountArchives(dir, "pshs_rot_t1", "log")
+  ; Clean up archives
+  If ExamineDirectory(2, dir, "pshs_rot_t1.*")
+    While NextDirectoryEntry(2) : DeleteFile(dir + DirectoryEntryName(2)) : Wend
+    FinishDirectory(2)
+  EndIf
+  DeleteFile(tmpLog)
+
+  Assert(archives >= 1, "At least one archive should be created after rotation")
+EndProcedureUnit
+
+ProcedureUnit Logger_Rotation_ArchiveHasDateStampFormat()
+  Protected tmpLog.s = GetTemporaryDirectory() + "pshs_rot_t2.log"
+  Protected dir.s    = GetTemporaryDirectory()
+  DeleteFile(tmpLog)
+  g_LogMaxBytes  = 1
+  g_LogKeepCount = 10
+  OpenLogFile(tmpLog)
+  LogAccess("1.2.3.4", "GET", "/a", "HTTP/1.1", 200, 50, "", "")
+  LogAccess("1.2.3.4", "GET", "/b", "HTTP/1.1", 200, 50, "", "")
+  CloseLogFile()
+  g_LogMaxBytes = 0
+
+  ; Find the archive and check its name format: pshs_rot_t2.YYYYMMDD-HHMMSS-NNN.log
+  Protected found.i = #False, name.s
+  If ExamineDirectory(2, dir, "pshs_rot_t2.*")
+    While NextDirectoryEntry(2)
+      name = DirectoryEntryName(2)
+      If name <> "pshs_rot_t2.log" And Left(name, 12) = "pshs_rot_t2."
+        found = #True
+        ; Verify mid part contains a dash at position 9
+        Protected mid.s = Mid(name, 13, Len(name) - 12 - 4)  ; strip prefix and ".log"
+        Assert(Len(mid) >= 15,          "Archive stamp should be at least 15 chars")
+        Assert(Mid(mid, 9, 1) = "-",    "Archive stamp should have '-' at position 9")
+      EndIf
+    Wend
+    FinishDirectory(2)
+  EndIf
+  ; Clean up
+  If ExamineDirectory(2, dir, "pshs_rot_t2.*")
+    While NextDirectoryEntry(2) : DeleteFile(dir + DirectoryEntryName(2)) : Wend
+    FinishDirectory(2)
+  EndIf
+  DeleteFile(tmpLog)
+
+  Assert(found, "An archive file with date-stamp name should exist")
+EndProcedureUnit
+
+ProcedureUnit Logger_Rotation_PrunesOldestArchives()
+  Protected tmpLog.s = GetTemporaryDirectory() + "pshs_rot_t3.log"
+  Protected dir.s    = GetTemporaryDirectory()
+  DeleteFile(tmpLog)
+
+  ; Pre-create two "old" fake archives (lexicographically before any real stamp)
+  Protected fakeA.s = dir + "pshs_rot_t3.20200101-000000-000.log"
+  Protected fakeB.s = dir + "pshs_rot_t3.20200101-000001-000.log"
+  Protected fh.i = CreateFile(#PB_Any, fakeA) : If fh > 0 : CloseFile(fh) : EndIf
+  fh = CreateFile(#PB_Any, fakeB) : If fh > 0 : CloseFile(fh) : EndIf
+
+  g_LogMaxBytes  = 1
+  g_LogKeepCount = 2   ; keep at most 2 archives total
+  OpenLogFile(tmpLog)
+  LogAccess("1.2.3.4", "GET", "/a", "HTTP/1.1", 200, 50, "", "")
+  LogAccess("1.2.3.4", "GET", "/b", "HTTP/1.1", 200, 50, "", "")  ; triggers rotation → 3 archives → prune to 2
+  CloseLogFile()
+  g_LogMaxBytes = 0
+
+  Protected archives.i = CountArchives(dir, "pshs_rot_t3", "log")
+  ; Clean up
+  If ExamineDirectory(2, dir, "pshs_rot_t3.*")
+    While NextDirectoryEntry(2) : DeleteFile(dir + DirectoryEntryName(2)) : Wend
+    FinishDirectory(2)
+  EndIf
+  DeleteFile(tmpLog)
+
+  Assert(archives <= 2, "Archives should be pruned to g_LogKeepCount (2)")
+EndProcedureUnit
+
+ProcedureUnit Logger_Rotation_DisabledWhenMaxBytesZero()
+  Protected tmpLog.s = GetTemporaryDirectory() + "pshs_rot_t4.log"
+  Protected dir.s    = GetTemporaryDirectory()
+  DeleteFile(tmpLog)
+  g_LogMaxBytes  = 0   ; rotation disabled
+  g_LogKeepCount = 10
+  OpenLogFile(tmpLog)
+  Protected i.i
+  For i = 1 To 5
+    LogAccess("1.2.3.4", "GET", "/page" + Str(i), "HTTP/1.1", 200, 1000, "", "")
+  Next i
+  CloseLogFile()
+
+  Protected archives.i = CountArchives(dir, "pshs_rot_t4", "log")
+  If ExamineDirectory(2, dir, "pshs_rot_t4.*")
+    While NextDirectoryEntry(2) : DeleteFile(dir + DirectoryEntryName(2)) : Wend
+    FinishDirectory(2)
+  EndIf
+  DeleteFile(tmpLog)
+
+  Assert(archives = 0, "No archives should be created when rotation is disabled (g_LogMaxBytes=0)")
 EndProcedureUnit
 
 ; --- ApacheDate ---

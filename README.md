@@ -15,6 +15,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | D | v0.4.0 | Embedded assets (IncludeBinary + CatchPack) | ✅ Done |
 | E | v1.0.3 | Thread-per-connection, access log, full CLI | ✅ Done |
 | F-1 | v1.1.0 | Apache Combined Log, error log, log level filtering | ✅ Done |
+| F-2 | v1.2.0 | Size-based log rotation with archive naming + keep-count | ✅ Done |
 
 ## Build
 
@@ -68,7 +69,7 @@ cd tests
 ./run_tests.sh
 ```
 
-78 unit tests across 11 test files. All tests pass.
+82 unit tests across 11 test files. All tests pass.
 
 ## Load Testing
 
