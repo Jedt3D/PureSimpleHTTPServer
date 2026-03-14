@@ -34,7 +34,7 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 | Flag | Description |
 |------|-------------|
 | `--port N` | Listening port (default: 8080) |
-| `--root DIR` | Document root directory (default: current directory) |
+| `--root DIR` | Document root directory (default: `wwwroot/` next to binary) |
 | `--browse` | Enable directory listing |
 | `--spa` | Serve `index.html` for all 404s (SPA mode) |
 | `--log FILE` | Write access log to FILE |

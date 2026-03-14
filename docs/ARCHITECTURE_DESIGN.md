@@ -10,19 +10,19 @@ PureSimpleHTTPServer is a single-binary HTTP/1.1 static file server. Each module
 src/
   main.pb               Entry point: wires all modules, event loop
   Global.pbi            Constants, enumerations, #APP_VERSION
-  Types.pbi             Shared structures: HttpRequest, HttpResponse, ServerConfig
+  Types.pbi             Shared structures: HttpRequest, HttpResponse, ServerConfig, RangeSpec
   DateHelper.pbi        HTTPDate() — RFC 7231 date formatting
   UrlHelper.pbi         URLDecodePath(), NormalizePath()
   HttpParser.pbi        ParseHttpRequest(), GetHeader()
   HttpResponse.pbi      StatusText(), BuildResponseHeaders(), SendTextResponse()
-  TcpServer.pbi         StartServer(), StopServer(), g_Handler callback
-  MimeTypes.pbi         GetMimeType()  [Phase B]
-  FileServer.pbi        ServeFile(), ResolveIndexFile(), BuildETag()  [Phase B]
-  DirectoryListing.pbi  BuildDirectoryListing()  [Phase C]
-  RangeParser.pbi       ParseRangeHeader()  [Phase C]
-  Logger.pbi            LogAccess(), OpenLogFile(), CloseLogFile()  [Phase E]
-  Config.pbi            LoadDefaults(), ParseCLI()  [Phase E]
-  EmbeddedAssets.pbi    OpenEmbeddedPack(), ServeEmbeddedFile()  [Phase D]
+  TcpServer.pbi         StartServer(), StopServer(), g_Handler, ConnectionThread
+  MimeTypes.pbi         GetMimeType()
+  FileServer.pbi        ServeFile(), ResolveIndexFile(), BuildETag(), IsHiddenPath()
+  DirectoryListing.pbi  BuildDirectoryListing()
+  RangeParser.pbi       ParseRangeHeader(), SendPartialResponse()
+  EmbeddedAssets.pbi    OpenEmbeddedPack(), ServeEmbeddedFile(), CloseEmbeddedPack()
+  Logger.pbi            OpenLogFile(), LogAccess(), CloseLogFile()
+  Config.pbi            LoadDefaults(), ParseCLI()
 ```
 
 ## Dependency Graph
@@ -35,11 +35,11 @@ Global.pbi
             ├── HttpResponse.pbi
             ├── TcpServer.pbi
             ├── MimeTypes.pbi
-            │       └── FileServer.pbi
-            ├── DirectoryListing.pbi
-            ├── RangeParser.pbi
+            │       └── FileServer.pbi ──► DirectoryListing.pbi (Declare)
+            │                        └──► RangeParser.pbi      (Declare)
+            ├── EmbeddedAssets.pbi
             ├── Config.pbi
-            └── EmbeddedAssets.pbi
+            └── (Logger.pbi — depends on Global.pbi only)
 
 DateHelper.pbi      (no project dependencies — pure PureBasic built-ins)
 Logger.pbi ── Global.pbi
@@ -47,103 +47,89 @@ Logger.pbi ── Global.pbi
 
 All `XIncludeFile` paths are relative to the file containing the directive, so any module can be included from any location (including `tests/`) and its dependencies resolve correctly.
 
-## HTTP Request Lifecycle (Phase E — current)
+## HTTP Request Lifecycle
 
 ```
 Browser/client
   │
   ▼
 TCP socket  (CreateNetworkServer → NetworkServerEvent loop in TcpServer.pbi)
-  │  ReceiveNetworkData → accumulate bytes until \r\n\r\n found
+  │  ReceiveNetworkData → accumulate bytes per client until \r\n\r\n found
+  │  Complete request → AllocateStructure(ThreadData) → CreateThread(@ConnectionThread())
   ▼
-Raw HTTP string  →  ParseHttpRequest()  →  HttpRequest struct
-                     (HttpParser.pbi)
+ConnectionThread  (one per request, runs concurrently)
   │
   ▼
 HandleRequest()  (main.pb)
+  │  clientIP = NetworkClientIP(connection)
+  │  ParseHttpRequest(raw, req)  →  HttpRequest struct
   │  req\Method = "GET"
-  ▼
-ServeFile(connection, *cfg, *req)
-  │  (FileServer.pbi)
-  ├── IsHiddenPath(urlPath, cfg\HiddenPatterns)  → 403
-  ├── FileSize() = -2 (directory)
-  │     ├── ResolveIndexFile()           → serve index file
-  │     ├── cfg\BrowseEnabled            → BuildDirectoryListing() → 200 HTML
-  │     └── otherwise                   → 403
-  ├── FileSize() < 0 (missing)
-  │     ├── cfg\SpaFallback              → serve root index.html
-  │     └── otherwise                   → 404
-  ├── .gz sidecar + Accept-Encoding:gzip → 200 with Content-Encoding: gzip
-  ├── If-None-Match matches ETag         → 304 Not Modified
-  ├── Range header present               → ParseRangeHeader() → SendPartialResponse() → 206
-  └── AllocateMemory + ReadData          → 200 (or 500 on I/O error)
-        Content-Type via GetMimeType(LCase(GetExtensionPart()))
-        ETag: hex(size)-hex(mtime)
-        Last-Modified: HTTPDate(GetFileDate())
   │
-  ▼
-CloseNetworkConnection()
-```
-
-## HTTP Request Lifecycle (Phase B onwards)
-
-```
-HandleRequest()  (runs in ConnectionThread — Phase E)
+  ├── ServeEmbeddedFile(connection, req\Path)
+  │     └── UncompressPackMemory() from in-memory CatchPack  →  200
   │
-  │  NetworkClientIP(connection)  → clientIP for LogAccess
+  ├── ServeFile(connection, *cfg, *req)  (FileServer.pbi)
+  │     ├── IsHiddenPath()                        → 403
+  │     ├── FileSize() = -2  (directory)
+  │     │     ├── ResolveIndexFile()              → serve index file
+  │     │     ├── cfg\BrowseEnabled               → BuildDirectoryListing() → 200 HTML
+  │     │     └── otherwise                       → 403
+  │     ├── FileSize() < 0  (missing)
+  │     │     ├── cfg\SpaFallback                 → serve root index.html
+  │     │     └── otherwise                       → 404
+  │     ├── .gz sidecar + Accept-Encoding:gzip    → 200 gzip
+  │     ├── If-None-Match matches ETag             → 304 Not Modified
+  │     ├── Range header present                  → 206 Partial Content
+  │     └── ReadData → SendNetworkData            → 200
   │
-  ├── Path starts with hidden pattern? → 403
-  ├── ServeEmbeddedFile()              → 200 from in-memory pack (Phase D)
-  ├── ServeFile() from disk             → 200 / 206 / 304 (Phase B/C)
-  │     ├── ResolveIndexFile()          → serve index file if path is dir
-  │     ├── BuildDirectoryListing()     → 200 HTML listing if browse=on (Phase C)
-  │     └── SPA fallback               → serve index.html if spa=on (Phase C)
-  └── 404 Not Found
+  └── LogAccess(method, path, status, 0, clientIP)  →  Logger.pbi (mutex-protected)
        │
        ▼
-  LogAccess(method, path, status, 0, clientIP)  →  Logger.pbi (mutex-protected)
+  CloseNetworkConnection(client)
 ```
 
-## Concurrency Model (Phase E)
+## Concurrency Model
 
 ```
 Main event loop  (single-threaded)
-  │  Accumulates raw HTTP bytes per client in NewMap accum.s()
-  │  On complete request (\r\n\r\n found):
-  │    AllocateStructure(ThreadData) → client + raw string
+  │  NewMap accum.s() — per-client byte accumulation (main-thread only, no mutex needed)
+  │  On \r\n\r\n found:
+  │    AllocateStructure(ThreadData)  →  {client, raw}
   │    CreateThread(@ConnectionThread(), *td)
   │    DeleteMapElement(accum(), clientKey)
   │
   ├── ConnectionThread A  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
   ├── ConnectionThread B  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
-  └── ...
+  └── ...  (unbounded; falls back to synchronous if CreateThread fails)
 
 Shared state safety:
-  - g_Handler, g_Config, g_EmbeddedPack: read-only after startup — no mutex needed
-  - g_LogFile / WriteStringN(): protected by g_LogMutex
-  - NewMap accum: only accessed from main event loop — no mutex needed
-  - File I/O (ReadData, ExamineDirectory): thread-safe under -t flag
+  - g_Handler, g_Config, g_EmbeddedPack : read-only after startup — no mutex needed
+  - g_LogFile / WriteStringN()          : protected by g_LogMutex (created in OpenLogFile)
+  - NewMap accum                         : accessed from main loop only — no mutex needed
+  - File / directory I/O                 : thread-safe under -t compiler flag
 ```
 
-## Concurrency Model
+Compile with `-t` (thread-safe mode) is required for Phase E.
 
-| Phase | Model |
-|-------|-------|
-| A–D | Single-threaded: one connection at a time (Connection: close) |
-| E | Thread-per-connection: each `#PB_NetworkEvent_Connect` spawns a new thread; shared state (logger, config, asset pack) protected by mutexes |
-
-## Embedded Asset Strategy (Phase D)
+## Embedded Asset Strategy
 
 ```
 Build time:
   1. scripts/pack_assets.sh dist/ src/webapp.zip
-  2. pbcompiler sees: DataSection / webapp: / IncludeBinary "webapp.zip" / webappEnd: / EndDataSection
+  2. In main.pb: UseZipPacker()
+                 DataSection
+                   webapp:    IncludeBinary "src/webapp.zip"
+                   webappEnd:
+                 EndDataSection
 
 Runtime:
-  1. OpenEmbeddedPack()         -> CatchPack(#PB_Any, ?webapp, ?webappEnd - ?webapp)
-  2. Request arrives for /app/  -> ServeEmbeddedFile() -> ExaminePack() + UncompressPackMemory()
-  3. Falls back to disk if path not in pack
+  1. Main() → OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp)
+              → CatchPack(#PB_Any, *addr, size)
+  2. Request → ServeEmbeddedFile() → UncompressPackMemory(pack, *buf, maxSize, filename)
+  3. Falls back to disk if filename not in pack
 ```
+
+Without a `DataSection`, `OpenEmbeddedPack()` (called with default args 0, 0) returns `#False` and disk serving is used exclusively.
 
 ## Key Design Decisions
 
@@ -155,4 +141,5 @@ Runtime:
 6. **Binary file serving via `ReadData()`/`SendNetworkData()`** — text responses use `SendNetworkString(#PB_UTF8)`; binary file bodies use `SendNetworkData()` to avoid encoding.
 7. **`Declare` for cross-module forward references** — FileServer.pbi calls `BuildDirectoryListing`, `ParseRangeHeader`, `SendPartialResponse` which are defined in later-included files. `Declare` statements at the top of FileServer.pbi tell the compiler the signatures; the linker resolves them from the same compilation unit.
 8. **Thread-per-connection data hand-off via `AllocateStructure`** — The main event loop captures the client ID and accumulated raw string into a `ThreadData` structure, spawns the thread, then deletes the map entry. The thread owns the structure and frees it via `FreeStructure` before processing, preventing any use-after-free and keeping the accum map main-thread-only.
-9. **Logger mutex pattern** — `g_LogMutex` is created once in `OpenLogFile()` and never freed; multiple `OpenLogFile()` calls check `g_LogMutex = 0` before creating. `LogAccess()` guards `WriteStringN()` with `LockMutex`/`UnlockMutex` to prevent interleaved log lines from concurrent handler threads.
+9. **Logger mutex pattern** — `g_LogMutex` is created once in `OpenLogFile()` and never freed; `LogAccess()` guards `WriteStringN()` with `LockMutex`/`UnlockMutex` to prevent interleaved log lines from concurrent handler threads.
+10. **Default root via `GetPathPart(ProgramFilename())`** — the default web root is `wwwroot/` next to the binary, not the working directory. This ensures consistent behaviour regardless of where the server is launched from.

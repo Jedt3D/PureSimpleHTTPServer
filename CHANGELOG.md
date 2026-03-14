@@ -6,6 +6,17 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.0.1 — 2026-03-15 00:30
+
+### Default web root changed from CWD to `wwwroot/` next to binary
+
+**Changed**
+- `src/Config.pbi` — `LoadDefaults()` now sets `RootDirectory` to `GetPathPart(ProgramFilename()) + "wwwroot"` instead of `GetCurrentDirectory()`. The server now always looks for content in a `wwwroot/` folder beside the executable, regardless of the working directory at launch time. Override with `--root DIR` as before.
+- `docs/USAGE_GUIDE.md`, `docs/ARCHITECTURE_DESIGN.md`, `docs/DEVELOPER_GUIDE.md` — fully updated to reflect v1.0.0/v1.0.1 state (USAGE_GUIDE was still Phase A vintage; ARCHITECTURE_DESIGN had duplicate sections and a stale lifecycle diagram; DEVELOPER_GUIDE updated test count to 70, added pitfall notes for threads and PureUnit)
+- `README.md` — fixed `--root` flag description
+
+---
+
 ## v1.0.0 — 2026-03-14 23:59
 
 ### Phase E — Thread-per-Connection, Logger, Full CLI Parsing

@@ -25,30 +25,32 @@ cd tests && ./run_tests.sh --report
 pureunit -v tests/test_date_helper.pb
 ```
 
-PureUnit exits with code `0` if all tests pass, `1` if any fail.
+PureUnit exits with code `0` if all tests pass, `1` if any fail. Currently **70 tests across 11 files**.
 
 ## Writing a New Test
 
 1. Create `tests/test_<module>.pb`
-2. `XIncludeFile` only the top-level module under test (transitive includes happen automatically)
+2. `XIncludeFile "TestCommon.pbi"` — this includes all `../src/` modules in dependency order
 3. Write `ProcedureUnit` procedures — no arguments, descriptive names
 4. Use `Assert(condition, "message")` for all assertions
-5. Use `ProcedureUnitStartup` / `ProcedureUnitShutdown` for setup/teardown of shared state
+5. Use `ProcedureUnitStartup name()` / `ProcedureUnitShutdown name()` for setup/teardown
 
 ```purebasic
 EnableExplicit
+XIncludeFile "TestCommon.pbi"
 
-XIncludeFile "../src/MyModule.pbi"
+Global g_TmpFile.s
 
-ProcedureUnitStartup Setup()
-  ; create temp files, init globals
+ProcedureUnitStartup setup()
+  g_TmpFile = GetTemporaryDirectory() + "pshs_test.tmp"
+  DeleteFile(g_TmpFile)
 EndProcedureUnit
 
-ProcedureUnitShutdown Teardown()
-  ; delete temp files
+ProcedureUnitShutdown teardown()
+  DeleteFile(g_TmpFile)
 EndProcedureUnit
 
-ProcedureUnit Test_MyFunction_HappyPath()
+ProcedureUnit MyModule_HappyPath()
   Assert(MyFunction("input") = "expected", "Unexpected result")
 EndProcedureUnit
 ```
@@ -57,35 +59,35 @@ EndProcedureUnit
 
 1. Create `src/MyModule.pbi` with:
    - `XIncludeFile` for its dependencies at the top
-   - `EnableExplicit` (redundant but explicit)
    - Only `Procedure`, `Structure`, `Enumeration`, constants — **no top-level executable code**
-2. `XIncludeFile "MyModule.pbi"` in `src/main.pb` in dependency order
-3. Create `tests/test_my_module.pb` with at least one `ProcedureUnit`
+2. Add `XIncludeFile "MyModule.pbi"` to `src/main.pb` in dependency order
+3. Add `XIncludeFile "../src/MyModule.pbi"` to `tests/TestCommon.pbi`
+4. Create `tests/test_my_module.pb` with at least one `ProcedureUnit`
 
-## End-of-Phase Checklist
-
-After completing each phase:
+## Project Structure Quick Reference
 
 ```
-1. pureunit -i tests/test_*.pb   →  exit code 0 (all pass)
-2. Bump #APP_VERSION in src/Global.pbi
-3. Add entry to CHANGELOG.md: ## vX.Y.Z — YYYY-MM-DD HH:MM
-4. Update /Users/worajedt/.claude/skills/purebasic/resources/common-pitfalls.md
-   if any new PureBasic gotcha was discovered
-5. git add -p && git commit -m "vX.Y.Z: Phase X — description"
-6. Update docs/USAGE_GUIDE.md, ARCHITECTURE_DESIGN.md, DEVELOPER_GUIDE.md
-7. Save session state to Claude memory system
+src/main.pb        Entry point — wires modules, starts server
+src/Global.pbi     #APP_VERSION, HTTP status codes, buffer size constants
+src/Types.pbi      HttpRequest, HttpResponse, ServerConfig, RangeSpec structures
+src/*.pbi          One module per file — see ARCHITECTURE_DESIGN.md
+tests/TestCommon.pbi  Shared includes for all test files
+tests/test_*.pb    One test file per module (70 tests total)
+tests/run_tests.sh pureunit -i -v [--report] tests/test_*.pb
+docs/              USAGE_GUIDE, ARCHITECTURE_DESIGN, DEVELOPER_GUIDE
+scripts/           pack_assets.sh (build embedded asset zip)
 ```
 
 ## PureBasic Gotchas Specific to This Project
 
 ### Date type is `.q` not `.i`
 ```purebasic
-; WRONG — Date() returns Quad (8 bytes)
-Protected ts.i = Date(2026, 1, 1, 0, 0, 0)
+; WRONG — Date() and GetFileDate() return Quad (8 bytes)
+Protected ts.i = Date()
 
 ; CORRECT
-Protected ts.q = Date(2026, 1, 1, 0, 0, 0)
+Protected ts.q = Date()
+Protected mtime.q = GetFileDate(path, #PB_Date_Modified)
 ```
 
 ### Content-Length needs byte count, not character count
@@ -111,7 +113,26 @@ StartServer(8080)
 If `src/HttpParser.pbi` contains `XIncludeFile "UrlHelper.pbi"`, that resolves to `src/UrlHelper.pbi` regardless of where the main compiled file is. Test files in `tests/` that include `"../src/HttpParser.pbi"` get transitive includes resolved correctly.
 
 ### PureUnit: all test code must be inside `ProcedureUnit` blocks
-Code outside any `ProcedureUnit` procedure is **not executed** by PureUnit — only compiled. Use `ProcedureUnitStartup` for initialization code.
+Code outside any `ProcedureUnit` procedure is **not executed** by PureUnit — only compiled. Use `ProcedureUnitStartup name()` for initialization code.
+
+### PureUnit: `ProcedureUnitStartup` / `Shutdown` require a procedure name
+```purebasic
+; WRONG — parser error:
+ProcedureUnitStartup
+  ...
+EndProcedureUnit
+
+; CORRECT:
+ProcedureUnitStartup setup()
+  ...
+EndProcedureUnit
+```
+
+### PureUnit: `Global NewMap` / `Global NewList` at top level causes segfault
+PureUnit skips top-level initialization code, leaving map/list handles null. Use `Select/Case` inside a procedure instead (see `GetMimeType()` in MimeTypes.pbi).
+
+### PureUnit: `ProgramParameter()` returns PureUnit's own runtime args
+Do not assert on the return value of `ParseCLI()` inside PureUnit tests — PureUnit may pass its own internal arguments to the test binary, causing `ParseCLI` to see unrecognized flags and return `#False`. Only test that it doesn't crash and that config fields remain valid.
 
 ### `NetworkServerEvent()` needs a server ID when using `#PB_Any`
 ```purebasic
@@ -122,15 +143,8 @@ Protected serverID.i = CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)
 event = NetworkServerEvent(serverID)
 ```
 
-## Project Structure Quick Reference
-
-```
-src/main.pb        Entry point — wires modules, starts server
-src/Global.pbi     #APP_VERSION, HTTP status codes, buffer size constants
-src/Types.pbi      HttpRequest, HttpResponse, ServerConfig structures
-src/*.pbi          One module per file — see ARCHITECTURE_DESIGN.md
-tests/test_*.pb    One test file per module
-tests/run_tests.sh pureunit -i -v [--report] tests/test_*.pb
-docs/              USAGE_GUIDE, ARCHITECTURE_DESIGN, DEVELOPER_GUIDE
-scripts/           pack_assets.sh (Phase D)
+### Thread-safe mode requires `-t` compiler flag
+`CreateThread()`, `CreateMutex()`, `LockMutex()` are always available, but safe concurrent memory allocation and most library internals require `-t`:
+```bash
+pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ```
