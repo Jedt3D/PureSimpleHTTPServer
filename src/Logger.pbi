@@ -3,9 +3,11 @@
 ; Provides: OpenLogFile(), LogAccess(), CloseLogFile()
 ;           OpenErrorLog(), LogError(), CloseErrorLog()
 ;           ApacheDate()
+;           StartDailyRotation(), StopDailyRotation()
 ;
 ; Phase F-1: Apache Combined Log Format access log + error log + log level filtering
 ; Phase F-2: Size-based log rotation with date-stamped archives and keep-count pruning
+; Phase F-3: Daily midnight UTC rotation via background thread
 ;
 ; Access log format (CLF Combined):
 ;   IP - - [DD/Mon/YYYY:HH:MM:SS +HHMM] "METHOD /path PROTO" STATUS BYTES "Referer" "UA"
@@ -16,11 +18,14 @@
 ; Log levels: none=0  error=1  warn=2  info=3  (default threshold: 2=warn)
 ;   A message is written if its level integer <= g_LogLevel threshold.
 ;
-; Rotation (F-2):
-;   When log size >= g_LogMaxBytes (0 = disabled), the log is renamed to a
-;   date-stamped archive and a fresh file is opened. Old archives beyond
-;   g_LogKeepCount are deleted (oldest first). Archive format:
-;     stem.YYYYMMDD-HHMMSS-NNN.ext  (NNN = per-process sequence, ensures uniqueness)
+; Rotation (F-2 + F-3):
+;   F-2 — When log size >= g_LogMaxBytes (0 = disabled), the log is renamed to a
+;     date-stamped archive and a fresh file is opened. Old archives beyond
+;     g_LogKeepCount are deleted (oldest first). Archive format:
+;       stem.YYYYMMDD-HHMMSS-NNN.ext  (NNN = per-process sequence, ensures uniqueness)
+;   F-3 — StartDailyRotation() launches a background thread that wakes at the next
+;     UTC midnight and rotates both log files, then sleeps until the following midnight.
+;     StopDailyRotation() signals the thread to exit and waits for it to finish.
 ;
 ; Thread safety: g_LogMutex covers both log file handles; all writes are mutex-guarded.
 ;   Rotation is performed inside the mutex before the write.
@@ -41,6 +46,8 @@ Global g_ErrorLogPath.s  = ""  ; error log file path (saved for rotation)
 Global g_LogMaxBytes.i   = 0   ; rotation threshold in bytes; 0 = disabled
 Global g_LogKeepCount.i  = 30  ; max rotated archive files to keep per log
 Global g_RotationSeq.i   = 0   ; per-process sequence counter for archive uniqueness
+Global g_RotationThread.i = 0  ; daily rotation thread ID (0 = not running)
+Global g_StopRotation.i   = 0  ; set to 1 to signal thread to exit
 
 ; --- Internal helpers ---
 
@@ -168,6 +175,37 @@ Procedure RotateLog(*fh, logPath.s)
   PruneArchives(logPath)
 EndProcedure
 
+; LogRotationThread(*unused) — background thread: sleep to next UTC midnight, then rotate
+; Outer loop: compute seconds-to-midnight, sleep 1s at a time checking g_StopRotation,
+; then acquire g_LogMutex and rotate both open log files.
+Procedure LogRotationThread(*unused)
+  Protected secsLeft.q, elapsed.q, utcNow.q
+  While g_StopRotation = 0
+    ; Compute seconds until next UTC midnight (result: 1..86400)
+    utcNow   = ConvertDate(Date(), #PB_Date_UTC)
+    secsLeft = 86400 - (utcNow % 86400)
+
+    ; Sleep until midnight, waking every second to check stop flag
+    elapsed = 0
+    While elapsed < secsLeft And g_StopRotation = 0
+      Delay(1000)
+      elapsed + 1
+    Wend
+
+    ; Rotate both log files (unless shutting down)
+    If g_StopRotation = 0
+      LockMutex(g_LogMutex)
+      If g_LogFile > 0 And g_LogPath <> ""
+        RotateLog(@g_LogFile, g_LogPath)
+      EndIf
+      If g_ErrorLogFile > 0 And g_ErrorLogPath <> ""
+        RotateLog(@g_ErrorLogFile, g_ErrorLogPath)
+      EndIf
+      UnlockMutex(g_LogMutex)
+    EndIf
+  Wend
+EndProcedure
+
 ; --- Public API ---
 
 ; ApacheDate(ts.q) — format a PureBasic date as [DD/Mon/YYYY:HH:MM:SS +HHMM]
@@ -263,6 +301,25 @@ Procedure LogAccess(ip.s, method.s, path.s, protocol.s, status.i, bytes.i, refer
     WriteStringN(g_LogFile, line, #PB_Ascii)
   EndIf
   UnlockMutex(g_LogMutex)
+EndProcedure
+
+; StartDailyRotation() — launch the daily midnight UTC rotation background thread.
+; No-op if the thread is already running. Call after opening log files.
+Procedure StartDailyRotation()
+  If g_RotationThread = 0
+    g_StopRotation   = 0
+    g_RotationThread = CreateThread(@LogRotationThread(), 0)
+  EndIf
+EndProcedure
+
+; StopDailyRotation() — signal the rotation thread to stop and wait for it to exit.
+; Safe to call when no thread is running.
+Procedure StopDailyRotation()
+  If g_RotationThread > 0
+    g_StopRotation = 1
+    WaitThread(g_RotationThread)
+    g_RotationThread = 0
+  EndIf
 EndProcedure
 
 ; LogError(level.s, message.s) — append one error log line

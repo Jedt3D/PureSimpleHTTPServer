@@ -6,6 +6,31 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.3.0 — 2026-03-15 05:00
+
+### Phase F-3 — Daily Midnight UTC Rotation + PID File
+
+**Added**
+- `src/Logger.pbi`
+  - `LogRotationThread(*unused)` — background thread: computes seconds to next UTC midnight via `86400 - (ConvertDate(Date(), #PB_Date_UTC) % 86400)`, sleeps 1 second at a time checking `g_StopRotation`, then acquires `g_LogMutex` and calls `RotateLog()` for both open log files
+  - `StartDailyRotation()` — creates the thread; no-op if already running
+  - `StopDailyRotation()` — sets `g_StopRotation = 1`, calls `WaitThread()`, resets `g_RotationThread = 0`; safe if no thread running
+  - New globals: `g_RotationThread.i`, `g_StopRotation.i`
+- `src/main.pb`
+  - PID detection: `ImportC "" getpid.i() EndImport` for macOS/Linux; `g_ServerPID` set at startup (fills the `[pid N]` field in error log lines)
+  - PID file: written at startup when `--pid-file FILE` is given; deleted at shutdown (both normal and start-server-failure paths)
+  - Daily rotation: `StartDailyRotation()` called when `cfg\LogDaily = 1` and at least one log is configured; `StopDailyRotation()` called before `CloseLogFile()`
+
+**Changed**
+- `src/main.pb` — startup banner now shows `PID file: ... (PID N)` when PID file is active; comment updated to F-3
+
+**Tests**
+- `tests/test_logger.pb` — 19 → 21 tests; 2 new: thread starts and `g_RotationThread > 0`, `StopDailyRotation` safe without prior start
+- Teardown now calls `StopDailyRotation()` to prevent thread leaks between tests
+- 84 unit tests across 11 files; all pass
+
+---
+
 ## v1.2.0 — 2026-03-15 04:00
 
 ### Phase F-2 — Size-Based Log Rotation

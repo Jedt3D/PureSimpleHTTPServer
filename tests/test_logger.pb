@@ -15,6 +15,7 @@ ProcedureUnitStartup setup()
 EndProcedureUnit
 
 ProcedureUnitShutdown teardown()
+  StopDailyRotation()
   CloseLogFile()
   CloseErrorLog()
   g_LogMaxBytes  = 0   ; restore: don't leave rotation enabled for other tests
@@ -328,6 +329,23 @@ ProcedureUnit Logger_Rotation_DisabledWhenMaxBytesZero()
   DeleteFile(tmpLog)
 
   Assert(archives = 0, "No archives should be created when rotation is disabled (g_LogMaxBytes=0)")
+EndProcedureUnit
+
+; --- Daily rotation thread (F-3) ---
+
+ProcedureUnit Logger_StartDailyRotation_ThreadStarted()
+  OpenLogFile(g_TmpLog)
+  StartDailyRotation()
+  Protected running.i = Bool(g_RotationThread > 0)
+  StopDailyRotation()
+  CloseLogFile()
+  Assert(running,                 "StartDailyRotation should create a running thread")
+  Assert(g_RotationThread = 0,    "StopDailyRotation should clear g_RotationThread")
+EndProcedureUnit
+
+ProcedureUnit Logger_StopDailyRotation_WhenNotStarted_IsHarmless()
+  StopDailyRotation()  ; thread was never started — must not crash
+  Assert(#True, "StopDailyRotation without prior start should not crash")
 EndProcedureUnit
 
 ; --- ApacheDate ---
