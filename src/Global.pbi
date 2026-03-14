@@ -4,7 +4,7 @@ EnableExplicit
 
 ; --- Application identity ---
 #APP_NAME    = "PureSimpleHTTPServer"
-#APP_VERSION = "1.0.3"
+#APP_VERSION = "1.1.0"
 
 ; --- HTTP status codes ---
 #HTTP_200 = 200   ; OK

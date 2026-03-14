@@ -39,7 +39,14 @@ Structure ServerConfig
   IndexFiles.s       ; Comma-separated index file names (e.g. "index.html,index.htm")
   BrowseEnabled.i    ; #True to enable directory listing
   SpaFallback.i      ; #True to serve index.html for all 404s (SPA mode)
-  HiddenPatterns.s   ; Comma-separated patterns to hide (e.g. ".git,.env,*.bak")
+  HiddenPatterns.s   ; Comma-separated patterns to hide (e.g. ".git,.env,.DS_Store")
   LogFile.s          ; Path to access log file ("" to disable)
-  MaxConnections.i   ; Max concurrent connections (used in Phase E; default 100)
+  MaxConnections.i   ; Max concurrent connections (default 100)
+  ; --- F-1: log management ---
+  ErrorLogFile.s     ; Path to error log file ("" to disable)
+  LogLevel.i         ; Min error log level: 1=error 2=warn 3=info 0=none (default: 2)
+  LogSizeMB.i        ; Rotate when log exceeds N MB; 0 = disabled (default: 100)
+  LogKeepCount.i     ; Max rotated archive files to keep (default: 30)
+  LogDaily.i         ; 1 = rotate daily at midnight UTC (default: 1 when log file set)
+  PidFile.s          ; Path to PID file (F-3; "" to disable)
 EndStructure

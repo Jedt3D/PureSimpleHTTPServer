@@ -67,7 +67,7 @@ Procedure.i IsHiddenPath(urlPath.s, hiddenPatterns.s)
   ProcedureReturn #False
 EndProcedure
 
-; ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest) — serve a file from disk
+; ServeFile(connection, *cfg, *req, *bytesOut, *statusOut) — serve a file from disk
 ;
 ; Handles:
 ;   - Hidden path blocking (403)       [cfg\HiddenPatterns]
@@ -79,8 +79,11 @@ EndProcedure
 ;   - Byte-range requests (206)        [Range header]
 ;   - Regular 200 file serving
 ;
-; Returns #True on success (response sent), #False if an error response was sent.
-Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
+; *bytesOut (optional): receives the body byte count (0 for 304/empty responses)
+; *statusOut (optional): receives the actual HTTP status code sent
+;
+; Returns #True on success (2xx/3xx sent), #False if an error response was sent.
+Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest, *bytesOut = 0, *statusOut = 0)
   Protected urlPath.s       = *req\Path
   Protected docRoot.s       = *cfg\RootDirectory
   Protected indexList.s     = *cfg\IndexFiles
@@ -91,6 +94,8 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
 
   ; Block hidden paths
   If *cfg\HiddenPatterns <> "" And IsHiddenPath(urlPath, *cfg\HiddenPatterns)
+    LogError("error", "Forbidden: " + urlPath)
+    If *statusOut : PokeI(*statusOut, #HTTP_403) : EndIf
     SendTextResponse(connection, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
     ProcedureReturn #False
   EndIf
@@ -121,12 +126,17 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
     ElseIf *cfg\BrowseEnabled
       Protected listing.s = BuildDirectoryListing(fsPath, urlPath)
       If listing <> ""
+        If *statusOut : PokeI(*statusOut, #HTTP_200) : EndIf
         SendTextResponse(connection, #HTTP_200, "text/html; charset=utf-8", listing)
         ProcedureReturn #True
       EndIf
+      LogError("error", "BuildDirectoryListing failed: " + fsPath)
+      If *statusOut : PokeI(*statusOut, #HTTP_500) : EndIf
       SendTextResponse(connection, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
       ProcedureReturn #False
     Else
+      LogError("warn", "Directory listing disabled: " + urlPath)
+      If *statusOut : PokeI(*statusOut, #HTTP_403) : EndIf
       SendTextResponse(connection, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
       ProcedureReturn #False
     EndIf
@@ -141,10 +151,14 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
         fsPath   = resolvedPath
         fileSize = FileSize(fsPath)
       Else
+        LogError("error", "Not found (SPA: no root index): " + urlPath)
+        If *statusOut : PokeI(*statusOut, #HTTP_404) : EndIf
         SendTextResponse(connection, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
         ProcedureReturn #False
       EndIf
     Else
+      LogError("error", "File not found: " + fsPath)
+      If *statusOut : PokeI(*statusOut, #HTTP_404) : EndIf
       SendTextResponse(connection, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
       ProcedureReturn #False
     EndIf
@@ -186,6 +200,7 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
   ; --- 304 Not Modified (ETag match) ---
   If ifNoneMatch <> "" And ifNoneMatch = etag
     Protected hdr304.s = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=0" + #CRLF$
+    If *statusOut : PokeI(*statusOut, #HTTP_304) : EndIf
     SendNetworkString(connection, BuildResponseHeaders(#HTTP_304, hdr304, 0), #PB_Ascii)
     ProcedureReturn #True
   EndIf
@@ -194,10 +209,12 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
   If rangeHeader <> ""
     Protected range.RangeSpec
     If ParseRangeHeader(rangeHeader, fileSize, @range)
+      If *statusOut : PokeI(*statusOut, #HTTP_206) : EndIf
       ProcedureReturn SendPartialResponse(connection, fsPath, @range, mimeType, fileSize)
     Else
       ; 416 Range Not Satisfiable
       Protected hdr416.s = "Content-Range: bytes */" + Str(fileSize) + #CRLF$
+      If *statusOut : PokeI(*statusOut, #HTTP_416) : EndIf
       SendNetworkString(connection, BuildResponseHeaders(#HTTP_416, hdr416, 0), #PB_Ascii)
       ProcedureReturn #False
     EndIf
@@ -206,6 +223,8 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
   ; --- Regular 200 response ---
   *buffer = AllocateMemory(fileSize + 1)
   If *buffer = 0
+    LogError("error", "Out of memory serving: " + fsPath)
+    If *statusOut : PokeI(*statusOut, #HTTP_500) : EndIf
     SendTextResponse(connection, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
     ProcedureReturn #False
   EndIf
@@ -213,6 +232,8 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
   file = ReadFile(#PB_Any, fsPath)
   If file = 0
     FreeMemory(*buffer)
+    LogError("error", "Cannot open file: " + fsPath)
+    If *statusOut : PokeI(*statusOut, #HTTP_500) : EndIf
     SendTextResponse(connection, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
     ProcedureReturn #False
   EndIf
@@ -225,6 +246,8 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest)
   extraHeaders + "Last-Modified: "  + HTTPDate(mtime)  + #CRLF$
   extraHeaders + "Cache-Control: "  + "max-age=0"      + #CRLF$
 
+  If *statusOut : PokeI(*statusOut, #HTTP_200) : EndIf
+  If *bytesOut  : PokeI(*bytesOut,  fileSize)  : EndIf
   SendNetworkString(connection, BuildResponseHeaders(#HTTP_200, extraHeaders, fileSize), #PB_Ascii)
   If fileSize > 0 : SendNetworkData(connection, *buffer, fileSize) : EndIf
   FreeMemory(*buffer)

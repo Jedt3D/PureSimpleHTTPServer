@@ -14,6 +14,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | C | v0.3.0 | Directory listing, SPA fallback, Range requests | ✅ Done |
 | D | v0.4.0 | Embedded assets (IncludeBinary + CatchPack) | ✅ Done |
 | E | v1.0.3 | Thread-per-connection, access log, full CLI | ✅ Done |
+| F-1 | v1.1.0 | Apache Combined Log, error log, log level filtering | ✅ Done |
 
 ## Build
 
@@ -26,7 +27,9 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ## Run
 
 ```bash
-./PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa] [--log FILE]
+./PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa]
+                       [--log FILE] [--error-log FILE] [--log-level LEVEL]
+                       [--log-size MB] [--log-keep N] [--no-log-daily]
 # Default port: 8080, root: wwwroot/ next to the binary
 # Legacy: ./PureSimpleHTTPServer [port]
 ```
@@ -37,7 +40,12 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 | `--root DIR` | Document root directory (default: `wwwroot/` next to binary) |
 | `--browse` | Enable directory listing |
 | `--spa` | Serve `index.html` for all 404s (SPA mode) |
-| `--log FILE` | Write access log to FILE |
+| `--log FILE` | Write access log (Apache Combined Log Format) to FILE |
+| `--error-log FILE` | Write error log to FILE |
+| `--log-level LEVEL` | Error log threshold: `none`, `error`, `warn` (default), `info` |
+| `--log-size MB` | Rotate log when it exceeds MB (default: 100; 0 = disabled) |
+| `--log-keep N` | Max rotated archive files to keep (default: 30) |
+| `--no-log-daily` | Disable daily log rotation at midnight |
 
 ## Features
 
@@ -50,7 +58,8 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 - Pre-compressed `.gz` sidecar support (`Content-Encoding: gzip`)
 - Embedded asset serving via `IncludeBinary` + `CatchPack` (opt-in at build time)
 - Thread-per-connection for concurrent request handling
-- Access log with timestamp, IP, method, path, status, bytes
+- Access log in Apache Combined Log Format (CLF) with IP, method, path, status, bytes, Referer, User-Agent
+- Error log with level filtering (`none`/`error`/`warn`/`info`)
 
 ## Testing
 
@@ -59,7 +68,7 @@ cd tests
 ./run_tests.sh
 ```
 
-70 unit tests across 11 test files. All tests pass.
+78 unit tests across 11 test files. All tests pass.
 
 ## Load Testing
 

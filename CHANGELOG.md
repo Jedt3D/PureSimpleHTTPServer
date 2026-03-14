@@ -6,6 +6,34 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.1.0 — 2026-03-15 03:00
+
+### Phase F-1 — Apache Combined Log Format, Error Log, Log Level Filtering
+
+**Added**
+- `src/Logger.pbi` — complete rewrite with full F-1 feature set:
+  - **Access log**: Apache Combined Log Format (CLF) — `IP - - [DD/Mon/YYYY:HH:MM:SS +HHMM] "METHOD /path PROTO" STATUS BYTES "Referer" "UA"`
+  - **Error log**: `OpenErrorLog()`, `LogError(level, message)`, `CloseErrorLog()` — format `[timestamp] [level] [pid N] message`
+  - **Log level filtering**: `g_LogLevel` threshold (0=none, 1=error, 2=warn, 3=info); messages above threshold are silently dropped
+  - **UTC offset**: computed once at log init via `Date() - ConvertDate(Date(), #PB_Date_UTC)` (no `ImportC` needed), stored as `g_TZOffset` string (e.g. `"+0700"`)
+  - `ApacheDate(ts.q)` — formats a PureBasic date as `[DD/Mon/YYYY:HH:MM:SS +HHMM]`
+  - `EnsureLogInit()` — lazy mutex + TZ offset init; called by both `OpenLogFile()` and `OpenErrorLog()`
+  - Single `g_LogMutex` covers both log file handles
+  - `g_ServerPID.i` — reserved for F-3 PID file; appears in error log lines as `[pid 0]` until set
+- `src/Types.pbi` — `ServerConfig` extended with F-1 fields: `ErrorLogFile`, `LogLevel`, `LogSizeMB`, `LogKeepCount`, `LogDaily`, `PidFile`
+- `src/Config.pbi` — new CLI flags: `--error-log FILE`, `--log-level LEVEL`, `--log-size MB`, `--log-keep N`, `--no-log-daily`, `--pid-file FILE`; `ParseLogLevel()` helper; F-1 defaults in `LoadDefaults()`
+
+**Changed**
+- `src/main.pb` — include order: Logger.pbi moved before FileServer.pbi so `ServeFile()` can call `LogError()` directly; `g_LogLevel` applied from config; error log opened/closed; `HandleRequest()` uses full 8-argument `LogAccess()` with IP, method, path, protocol, status, bytes, referer, user-agent; usage string updated for new flags
+- `src/FileServer.pbi` — `ServeFile()` gains optional output params `*bytesOut = 0, *statusOut = 0`; `LogError()` called at all error points (403 hidden, 403 directory, 404, 500 OOM, 500 file open); status and byte count written via `PokeI()` at each response path
+- `tests/TestCommon.pbi` — Logger.pbi moved before FileServer.pbi to match main.pb include order
+- `tests/test_logger.pb` — rewritten: 7 → 15 tests covering CLF format, zero-bytes-as-dash, OpenErrorLog lifecycle, LogError writes, log level filtering (below threshold written, above threshold skipped), ApacheDate format
+
+**Tests**
+- 78 unit tests across 11 files; all pass
+
+---
+
 ## v1.0.3 — 2026-03-15 02:00
 
 ### Fix crash under concurrent load: move CloseNetworkConnection() to main thread
