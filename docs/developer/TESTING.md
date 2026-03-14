@@ -1,341 +1,303 @@
-# Testing PureSimpleHTTPServer
+# PureSimpleHTTPServer v1.5.0 — Testing Guide
 
 This document describes how to run the test suite, how to write new tests, and
-the pitfalls that are specific to PureBasic and the PureUnit framework as used
-in this codebase.
+the pitfalls specific to PureBasic and the PureUnit framework as used in this
+codebase.
 
 ---
 
 ## 1. Running Tests
 
-### Full suite
-
-From the `tests/` directory:
-
-```
-cd tests && ./run_tests.sh
+```bash
+cd tests
+./run_tests.sh
 ```
 
-Or from the project root:
+To generate an HTML report at `docs/test_report.html`:
 
-```
-./tests/run_tests.sh
-```
-
-`run_tests.sh` invokes `pureunit -i -v` on all `test_*.pb` files in the `tests/`
-directory. The `-i` flag randomizes test execution order within each file; `-v`
-enables verbose output showing each test name and pass/fail status.
-
-### Single file
-
-To run only the tests for one module:
-
-```
-pureunit -v tests/test_rewrite.pb
+```bash
+cd tests
+./run_tests.sh --report
 ```
 
-### HTML report
+`run_tests.sh` passes the `-i` (interpret) and `-v` (verbose) flags to PureUnit
+and globs every `test_*.pb` file in the `tests/` directory:
 
+```bash
+pureunit -i -v $REPORT_FLAG "$SCRIPT_DIR"/test_*.pb
 ```
-./tests/run_tests.sh --report
-```
 
-When `--report` is given, PureUnit writes an HTML summary to
-`docs/test_report.html`. The path is relative to the project root (not the
-`tests/` directory).
-
-### Current test count
-
-The suite currently contains **108 tests across 12 files**. See
-[Section 5](#5-test-file-inventory) for the per-file breakdown.
+The script exits with a non-zero status if any test fails (due to `set -e`).
 
 ---
 
-## 2. PureUnit Basics
+## 2. PureUnit Framework Overview
 
-PureUnit is a lightweight unit-testing framework for PureBasic. It works by
-compiling and executing each `.pb` file as a standalone program, injecting its
-own runtime that discovers and calls every `ProcedureUnit` block.
+PureUnit is a unit-testing tool for PureBasic. It reads source files directly,
+parses `ProcedureUnit` and `ProcedureUnitStartup`/`ProcedureUnitShutdown`
+blocks, runs them in sequence, and reports pass/fail per procedure.
 
-### Test anatomy
+### Test procedure syntax
+
+Test procedures use `ProcedureUnit`/`EndProcedureUnit` instead of
+`Procedure`/`EndProcedure`:
 
 ```purebasic
 ProcedureUnit MyModule_SomeBehavior()
-  Protected result.i = SomeFunction(42)
-  Assert(result = 100, "SomeFunction(42) should return 100")
+  Protected result.s = MyFunction("input")
+  Assert(result = "expected", "MyFunction should return 'expected'")
 EndProcedureUnit
 ```
 
-- `ProcedureUnit` / `EndProcedureUnit` — delimit a single test case.
-- `Assert(condition, message)` — fails the test if `condition` is `#False`.
-  The message is shown in the output when the assertion fails.
-- Any PureBasic code is valid inside a `ProcedureUnit`; `Protected` locals,
-  file I/O, string operations, and calls to modules under test all work normally.
-- A test with no `Assert` calls passes unconditionally; use this form only when
-  you are testing that something does not crash.
+`Assert(condition, message.s)` is the only assertion macro. It fails the test
+if `condition` evaluates to `#False` (zero). There is no `AssertEquals` or
+similar — compute the condition inline.
 
-### Startup and shutdown hooks
+### Setup and teardown
 
-If a test file needs shared state (temp directories, initialized engines, etc.),
-use `ProcedureUnitStartup` and `ProcedureUnitShutdown`:
+Each test file may define one startup and one shutdown procedure. PureUnit runs
+the startup before any test in that file and the shutdown after all tests in
+that file:
 
 ```purebasic
-Global g_TmpDir.s
-
-ProcedureUnitStartup my_setup()
-  g_TmpDir = GetTemporaryDirectory() + "pshs_test"
-  CreateDirectory(g_TmpDir)
+ProcedureUnitStartup setup()
+  ; runs before the first test in this file
 EndProcedureUnit
 
-ProcedureUnitShutdown my_teardown()
-  ; clean up temp files
-  DeleteFile(g_TmpDir + "/somefile.txt")
+ProcedureUnitShutdown teardown()
+  ; runs after the last test in this file
 EndProcedureUnit
 ```
 
-Important syntax notes:
-
-- The hook procedure name (`my_setup`, `my_teardown`) is arbitrary but must be
-  provided — the keyword alone without a name is a syntax error.
-- The hook body is terminated with `EndProcedureUnit`, not `EndProcedure`.
-- `ProcedureUnitStartup` runs once before any tests in the file.
-- `ProcedureUnitShutdown` runs once after all tests in the file, even when tests
-  fail.
-- Only one startup and one shutdown block is allowed per file.
-
-### Randomized test order
-
-PureUnit (when invoked with `-i`) executes test cases in randomized order. This
-means every test must be fully self-contained: it must not depend on another test
-having run first or having left a particular side effect in place.
-
-The practical consequence is that any shared state — temp files, loaded rule sets,
-initialized engines — must be set up in `ProcedureUnitStartup` (not in the first
-test that happens to need it) and torn down in `ProcedureUnitShutdown`.
+Both blocks use `ProcedureUnit`/`EndProcedureUnit` syntax. The name argument
+is required — see pitfall 3 below.
 
 ---
 
-## 3. Writing a New Test File
+## 3. Test File Structure
 
-### File naming and location
-
-Place test files in `tests/` and name them `test_<module>.pb`. The `run_tests.sh`
-script discovers files by the glob `tests/test_*.pb`.
-
-### Minimal template
+Every test file follows this template:
 
 ```purebasic
-; test_myfeature.pb — unit tests for MyFeature.pbi
+; test_mymodule.pb — Unit tests for MyModule.pbi
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 
-ProcedureUnit MyFeature_BasicCase()
-  Protected result.s = MyFeatureProc("input")
-  Assert(result = "expected", "Basic case should return 'expected'")
-EndProcedureUnit
-```
-
-`TestCommon.pbi` is the single include that pulls in all source modules from
-`../src/`. You do not need to add individual `XIncludeFile` lines for every
-module your test uses.
-
-### Using temporary files and directories
-
-PureBasic's `GetTemporaryDirectory()` returns the OS temp directory with a
-trailing path separator. Use it for test fixtures that need real filesystem
-paths:
-
-```purebasic
+; Optional: module-level globals used across tests
 Global g_TmpDir.s
-Global g_TmpFile.s
 
-ProcedureUnitStartup my_setup()
-  g_TmpDir  = GetTemporaryDirectory() + "pshs_myfeature_test"
-  g_TmpFile = g_TmpDir + "/fixture.txt"
+ProcedureUnitStartup setup()
+  g_TmpDir = GetTemporaryDirectory() + "pshs_mymod_test"
   CreateDirectory(g_TmpDir)
-  ; write a fixture
-  Protected fh.i = CreateFile(#PB_Any, g_TmpFile)
-  If fh
-    WriteStringN(fh, "hello", #PB_Ascii)
-    CloseFile(fh)
-  EndIf
 EndProcedureUnit
 
-ProcedureUnitShutdown my_teardown()
-  DeleteFile(g_TmpFile)
-  ; Note: DeleteDirectory() is not recursive in PureBasic.
-  ; Delete individual files first, then the directory.
-  ; Empty temp subdirectories can be left for the OS to clean up.
+ProcedureUnitShutdown teardown()
+  ; clean up files, resources
+EndProcedureUnit
+
+ProcedureUnit MyModule_Behavior_ExpectedOutcome()
+  Protected result.i = MyFunction("input")
+  Assert(result = 42, "MyFunction should return 42 for 'input'")
 EndProcedureUnit
 ```
 
-### Assert patterns
+### File naming
+
+Test files must be named `test_*.pb` to be picked up by `run_tests.sh`.
+
+### Naming convention for test procedures
+
+Use `ModuleName_Context_ExpectedBehavior` — for example:
+`Logger_LogAccess_ZeroBytesAsDash` or `Config_LoadDefaults_Port`. This
+produces readable output in PureUnit's verbose mode.
+
+### `TestCommon.pbi`
+
+All test files include `TestCommon.pbi` as their first `XIncludeFile`. This
+file includes every `src/*.pbi` module in the correct dependency order so that
+tests can call any public procedure without managing their own include chain.
 
 ```purebasic
-; Boolean check
-Assert(result = #True, "Should return True")
-
-; Integer value check
-Assert(count = 3, "Should load 3 rules — got: " + Str(count))
-
-; String value check
-Assert(path = "/expected/path", "Got: '" + path + "'")
-
-; Pointer/handle check
-Assert(handle <> 0, "Handle should be non-zero")
-
-; Crash safety: no-op test
-Assert(#True, "Function should not crash when called twice")
+; tests/TestCommon.pbi
+XIncludeFile "../src/Global.pbi"
+XIncludeFile "../src/Types.pbi"
+XIncludeFile "../src/DateHelper.pbi"
+; ... (all modules in dependency order)
 ```
 
 ---
 
-## 4. PureUnit Pitfalls
+## 4. Critical PureUnit Pitfalls
 
-This section documents constraints that are specific to this codebase and the
-PureBasic 6.x ARM64 runtime under PureUnit. Violating any of these rules will
-cause the test runner to crash, typically with a segfault.
+PureUnit runs test code in an interpreter that does not execute the `main()`
+body of your program. This affects global variable initialization in several
+ways that will cause crashes if not handled carefully.
 
-### Global NewMap and NewList crash under PureUnit
+### Pitfall 1 — `Global NewMap` and `Global NewList` at top level
 
-**Problem:** PureUnit compiles each test file as a standalone program but skips
-the top-level `main()` initialisation that the PureBasic IDE would normally run.
-Data structures declared with `Global NewList foo()` or `Global NewMap bar.s()`
-at file scope have their internal descriptors left uninitialised. The first call
-to `AddElement()`, `ClearList()`, or any map operation reads those zero
-descriptors and crashes with a segfault inside `SYS_AllocateArray`.
+**What happens:** A `Global NewMap` or `Global NewList` declared at the top
+level of a module (outside any procedure) allocates its descriptor in the
+data segment. When a test procedure then calls `AddElement` or
+`AddMapElement`, PureUnit's runtime environment may not have correctly set
+up the associated internal state, leading to memory corruption. Subsequent
+`ForEach`, `ClearList`, or `ClearMap` calls segfault.
 
-**Fix:** Never place `NewList` or `NewMap` at global scope in a module that is
-included into test files. Move the data structure declaration inside the
-procedure that first uses it as a `Protected` or `NewList` local. `TcpServer.pbi`
-demonstrates this correctly — its `accum.s()` map is declared `NewMap accum.s()`
-inside `StartServer()`, not at file scope.
+**Fix:** Do not use `Global NewMap` or `Global NewList` in modules that are
+tested. Replace them with one of:
 
-### Global Dim arrays crash for the same reason
+- A `Select/Case` lookup (as in `MimeTypes.pbi` — no map at all).
+- Lazy initialization with `AllocateMemory`, accessed via `PeekI`/`PokeI`.
+- A local `Protected NewList` declared inside the procedure that needs it
+  (as in `DirectoryListing.pbi` and `PruneArchives` in `Logger.pbi`).
+- Inline tokenization with `StringField` (as in `RewriteEngine.pbi`'s
+  `ParseRule_`).
 
-**Problem:** `Global Dim foo.SomeStruct(n)` arrays with embedded string fields
-(`.s`) are initialised by main-program startup code. Under PureUnit that startup
-is skipped. The array descriptor stays `{0}` and any access to the array (even a
-`ReDim`) crashes because the element size and type fields are both zero.
+### Pitfall 2 — `Global Dim` arrays with structure types or any type
 
-**Fix:** Replace all `Global Dim` arrays with raw `AllocateMemory` blocks
-allocated inside an explicit `Init` procedure, as `RewriteEngine.pbi` does with
-`InitRewriteEngine()`. Only scalar `Global` variables (`Global x.i`, `Global s.s`)
-are safe because PureBasic initialises them to zero/empty at compile time.
+**What happens:** `Global Dim array.SomeStructure(N)` and
+`Global Dim array.i(N)` both cause problems under PureUnit. PureBasic
+generates `SYS_AllocateArray` calls for `Dim` inside the compiler-generated
+`main()` entry point. PureUnit skips `main()`, so the array descriptor block
+remains as zeroed memory `{0}`.
 
-Example of the correct pattern:
+Attempting to use `ReDim` to fix this does not work. `ReDim` calls
+`SYS_ReAllocateArray(N, &descriptor)`, which reads the element size and type
+tag from the descriptor — both zero — and crashes.
+
+Structure types with embedded `.s` string fields are additionally dangerous
+because global initialization for managed strings is also skipped, leading to
+use-after-free behavior when the first string assignment fires the reference
+counter code on a garbage pointer.
+
+**Fix:** Replace all `Global Dim` arrays with `AllocateMemory` blocks
+allocated inside an `Init*()` procedure, stored in a `Global .i` scalar
+pointer. Access elements via `PeekI`/`PokeI`/`PeekQ`/`PokeQ`/`PeekS`/`PokeS`
+with manual byte-offset arithmetic. This is exactly the pattern used by
+`RewriteEngine.pbi`:
 
 ```purebasic
-; WRONG — crashes under PureUnit
+; WRONG — crashes under PureUnit:
 Global Dim g_Rules.RewriteRule(63)
 
-; CORRECT — allocate in an init procedure
-Global g_RuleTypeMem.i
-Global g_RuleCount.i
+; CORRECT — works under PureUnit:
+Global g_RuleTypeMem.i   ; pointer to AllocateMemory block
 
 Procedure InitMyModule()
   g_RuleTypeMem = AllocateMemory(64 * 8)
-  g_RuleCount   = 0
 EndProcedure
+
+; Access element i:
+; read:  PeekI(g_RuleTypeMem + i * 8)
+; write: PokeI(g_RuleTypeMem + i * 8, value)
 ```
 
-### ProgramParameter() returns PureUnit's own arguments
+Scalar `Global` variables of any type (`.i`, `.s`, `.q`, etc.) are safe — the
+compiler initializes them statically, not through `main()`.
 
-**Problem:** PureUnit passes its own internal flags to the test binary via
-`ProgramParameter()`. When `ParseCLI()` runs inside a test, it sees those flags
-as if they were server command-line arguments and returns `#False` (unrecognized
-argument).
+### Pitfall 3 — `ProcedureUnitStartup` requires a name argument
 
-**Fix:** In test files that call `ParseCLI()`, never `Assert` on the return
-value. Call `ParseCLI()` only to verify it does not crash, or to observe the
-state it leaves in the config struct when called with known valid state. See
-`test_config.pb` for the correct approach:
+**What happens:** Writing `ProcedureUnitStartup()` (empty parentheses) causes a
+PureUnit parse error. PureUnit requires a name for the startup and shutdown
+procedures.
+
+**Fix:** Always provide a name:
+
+```purebasic
+; WRONG:
+ProcedureUnitStartup()
+
+; CORRECT:
+ProcedureUnitStartup my_setup()
+```
+
+The name is arbitrary but must be present.
+
+### Pitfall 4 — `ProgramParameter()` returns PureUnit's own arguments
+
+**What happens:** `ParseCLI(*cfg)` calls `ProgramParameter(i)` in a loop.
+When run under PureUnit, `ProgramParameter(0)` returns one of PureUnit's own
+flags (e.g. `-v`, `-i`, or a file path), not a server flag. Asserting that
+`ParseCLI` returns `#True` in a test will therefore always fail, because
+PureUnit's flags are unrecognized by the server's argument parser.
+
+**Fix:** In tests, only assert that `ParseCLI` does not crash, not that it
+succeeds. Verify the state of individual fields that `ParseCLI` cannot affect
+via PureUnit's flags:
 
 ```purebasic
 ProcedureUnit Config_ParseCLI_DoesNotCrash()
   Protected cfg.ServerConfig
   LoadDefaults(@cfg)
-  ParseCLI(@cfg)   ; may fail — that's fine; we only check it doesn't crash
+  ParseCLI(@cfg)   ; return value intentionally ignored
   Assert(#True, "ParseCLI should not crash when invoked from PureUnit")
+EndProcedureUnit
+
+ProcedureUnit Config_ParseCLI_ConfigRemainsValid()
+  Protected cfg.ServerConfig
+  LoadDefaults(@cfg)
+  ParseCLI(@cfg)
+  ; MaxConnections is not a valid CLI flag, so it stays at the default
+  Assert(cfg\MaxConnections = 100, "MaxConnections unchanged after ParseCLI")
 EndProcedureUnit
 ```
 
-### InitNetwork() does not exist in PureBasic
-
-**Problem:** PureBasic does not have an `InitNetwork()` function. The network
-subsystem is always available without explicit initialization. Any test that
-calls `InitNetwork()` will fail to compile.
-
-**Fix:** Simply do not call it. If you are writing tests that use
-`NetworkServerEvent()` or `CreateNetworkServer()`, those are available without
-any preceding init call.
+To test specific flag parsing, set `cfg` fields directly and assert on those
+values — do not rely on `ParseCLI` receiving controlled input during a PureUnit
+run.
 
 ---
 
-## 5. Test File Inventory
+## 5. Current Test Files
 
-| File | Module tested | Tests | What it covers |
-|------|---------------|-------|----------------|
-| `test_config.pb` | `Config.pbi` | 9 | `LoadDefaults()` field values; `ParseCLI()` crash safety |
-| `test_date_helper.pb` | `DateHelper.pbi` | 4 | HTTP-Date format string correctness |
-| `test_directory_listing.pb` | `DirectoryListing.pbi` | 9 | HTML directory index generation from real temp dirs |
-| `test_embedded_assets.pb` | `EmbeddedAssets.pbi` | 4 | `OpenEmbeddedPack(0,0)` returns `#False`; `ServeEmbeddedFile` when no pack open |
-| `test_file_server.pb` | `FileServer.pbi` | 8 | `ResolveIndexFile`, `BuildETag`, `IsHiddenPath`, `ServeFile` with temp files |
-| `test_http_parser.pb` | `HttpParser.pbi` | 5 | GET parsing, query string splitting, header extraction, URL decoding, malformed input |
-| `test_http_response.pb` | `HttpResponse.pbi` | 5 | `BuildResponseHeaders` output, `StatusText` values, `SendTextResponse` (loopback) |
-| `test_logger.pb` | `Logger.pbi` | 23 | Log open/close/write, `ApacheDate` format, log level filtering, size rotation, archive pruning, daily rotation thread |
-| `test_mime_types.pb` | `MimeTypes.pbi` | 6 | Common extension lookups, unknown extension fallback |
-| `test_range_parser.pb` | `RangeParser.pbi` | 9 | Valid range parsing, suffix ranges, invalid/unsatisfiable ranges |
-| `test_rewrite.pb` | `RewriteEngine.pbi` | 22 | Exact/glob/regex rewrite and redirect, placeholder substitution, rule precedence, per-dir cache, parse edge cases |
-| `test_url_helper.pb` | `UrlHelper.pbi` | 4 | Percent-decoding, path normalization, traversal prevention |
+There are 12 test files covering all modules:
 
-**Total: 108 tests.**
+| File | Module(s) tested | Key behaviors |
+|---|---|---|
+| `test_date_helper.pb` | `DateHelper.pbi` | RFC 7231 format, day/month name lookup |
+| `test_url_helper.pb` | `UrlHelper.pbi` | Percent-decode, `.`/`..` normalization, path traversal rejection |
+| `test_http_parser.pb` | `HttpParser.pbi` | GET/POST parsing, query string split, URL decode, header extraction, malformed request rejection |
+| `test_http_response.pb` | `HttpResponse.pbi` | Status text lookup, header block assembly, `Content-Length` accuracy |
+| `test_mime_types.pb` | `MimeTypes.pbi` | Known extension lookup, unknown extension fallback |
+| `test_file_server.pb` | `FileServer.pbi` | Index file resolution, ETag generation and stability, hidden path detection |
+| `test_range_parser.pb` | `RangeParser.pbi` | Full, open-ended, and suffix range parsing; unsatisfiable range rejection |
+| `test_directory_listing.pb` | `DirectoryListing.pbi` | HTML generation, parent link, directory/file ordering |
+| `test_embedded_assets.pb` | `EmbeddedAssets.pbi` | No-pack no-op, `OpenEmbeddedPack` with invalid args |
+| `test_config.pb` | `Config.pbi` | `LoadDefaults` field values, `ParseCLI` crash-safety |
+| `test_logger.pb` | `Logger.pbi` | CLF format, zero-byte dash, level filtering, size rotation, archive naming, keep-count pruning, SIGHUP reopen, daily thread start/stop |
+| `test_rewrite.pb` | `RewriteEngine.pbi` | Exact/glob/regex rewrite and redirect, placeholder substitution, first-rule-wins, per-directory rules, mtime cache, comment/blank-line skipping |
 
 ---
 
-## 6. Coverage Gaps and How to Add Tests
+## 6. Adding a New Test File
 
-### TcpServer integration tests
+1. Create `tests/test_mymodule.pb` following the template in section 3.
 
-`TcpServer.pbi` is currently covered only by the fact that all other integration
-paths exercise it indirectly. Writing a dedicated test requires an actual
-listening TCP port. The correct approach is:
+2. Name it `test_*.pb` — `run_tests.sh` picks up all matching files
+   automatically. No manual registration is needed:
 
-1. In `ProcedureUnitStartup`, pick a high ephemeral port (e.g. 59800) and start
-   the server in a background thread with `CreateThread(@StartServer(), port)`.
-2. In each test, open a socket to `127.0.0.1:59800`, send a raw HTTP request,
-   and read the response.
-3. In `ProcedureUnitShutdown`, call `StopServer()` and wait for the thread.
+   ```bash
+   pureunit -i -v "$SCRIPT_DIR"/test_*.pb
+   ```
 
-The main constraint is that `CloseNetworkConnection()` must only be called from
-the main thread (see the comment at the top of `TcpServer.pbi`). If you call it
-from your test assertions while the server event loop is also draining the close
-queue, you will get a race. Structure the teardown so `StopServer()` is called
-and `WaitThread()` completes before you do any network cleanup in the test body.
+3. Add setup and teardown if your tests create temporary files or call
+   `Init*()` procedures:
 
-### Testing embedded assets
+   ```purebasic
+   ProcedureUnitStartup setup()
+     InitMyModule()
+   EndProcedureUnit
 
-The four existing embedded-asset tests only cover the no-pack path because
-compiling an actual `.zip` into the test binary at test time would require a
-separate compilation step. To test the live pack path:
+   ProcedureUnitShutdown teardown()
+     CleanupMyModule()
+   EndProcedureUnit
+   ```
 
-1. Build a small fixture zip (one or two tiny files) using
-   `scripts/pack_assets.sh`.
-2. Create a separate test binary (not a PureUnit file) that includes the zip via
-   `DataSection` / `IncludeBinary`, calls `OpenEmbeddedPack(?webapp, ...)`, and
-   calls `ServeEmbeddedFile()` against a loopback connection.
-3. Assert on the response headers and body received on the client side.
+4. Use `GetTemporaryDirectory()` for any files created during tests. Clean them
+   up in the shutdown procedure to avoid leaving state that could affect other
+   test files run in the same session.
 
-This is an end-to-end compilation test rather than a PureUnit test. It is best
-driven from a shell script that compiles, runs, and checks exit codes.
+5. Run the full suite to confirm no regressions:
 
-### Adding tests for new modules
-
-When you add a new source module `src/MyFeature.pbi`:
-
-1. Add `XIncludeFile "../src/MyFeature.pbi"` to `tests/TestCommon.pbi` in the
-   same position that `src/main.pb` includes it (include order matters for
-   forward declarations).
-2. Create `tests/test_myfeature.pb` using the template from Section 3.
-3. Run `./tests/run_tests.sh` to confirm the new file is discovered and passes.
-   The glob `test_*.pb` picks it up automatically.
+   ```bash
+   cd tests && ./run_tests.sh
+   ```

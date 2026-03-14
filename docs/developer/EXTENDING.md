@@ -1,410 +1,335 @@
-# Extending PureSimpleHTTPServer
+# PureSimpleHTTPServer v1.5.0 — Extension Guide
 
 This document is a developer reference for extending PureSimpleHTTPServer v1.5.0.
-It covers the four primary extension points — custom request handlers, new CLI
-flags, new source modules, and middleware layers — as well as the embedded asset
-workflow for shipping a compiled-in web application.
+The target audience is PureBasic developers who have the source SDK and want to
+add new features — flags, handlers, MIME types, middleware, new modules, or
+embedded asset workflows.
 
 ---
 
-## 1. Overview
+## 1. Adding a New CLI Flag
 
-The server's architecture is deliberately flat. There is no plugin system or
-framework — the extension points are simply call sites in `src/main.pb` where
-you swap in your own procedure, add a branch, or insert a new module. The
-relevant extension points are:
+CLI flags are parsed in `Config.pbi` by `ParseCLI(*cfg.ServerConfig)` and stored
+in the `ServerConfig` structure defined in `Types.pbi`.
 
-| What you want to do | Where to touch |
-|---------------------|----------------|
-| Replace or augment the HTTP request handler | `g_Handler` function pointer in `main.pb` |
-| Add a new command-line flag | `Types.pbi`, `Config.pbi`, startup banner in `main.pb`, test in `test_config.pb` |
-| Add a new source module | `src/NewModule.pbi`, include in `main.pb` and `tests/TestCommon.pbi` |
-| Insert processing between parse and file-serve | `HandleRequest()` in `main.pb` |
-| Serve a compiled-in web application | `DataSection` / `IncludeBinary` + `OpenEmbeddedPack()` |
+### Step 1 — Add a field to `ServerConfig` in `Types.pbi`
+
+```purebasic
+Structure ServerConfig
+  ; ... existing fields ...
+  CorsEnabled.i    ; #True to add CORS headers to every response
+EndStructure
+```
+
+### Step 2 — Set a default in `LoadDefaults` in `Config.pbi`
+
+```purebasic
+Procedure LoadDefaults(*cfg.ServerConfig)
+  ; ... existing defaults ...
+  *cfg\CorsEnabled = #False
+EndProcedure
+```
+
+### Step 3 — Parse the flag in `ParseCLI` in `Config.pbi`
+
+Add an `ElseIf` branch in the `While i < count` loop, following the existing
+pattern. Boolean flags take no argument; value flags advance `i` first:
+
+```purebasic
+; Boolean flag — no argument
+ElseIf param = "--cors"
+  *cfg\CorsEnabled = #True
+
+; Value flag — advance i and read next token
+ElseIf param = "--cors-origin"
+  i + 1
+  If i >= count : ProcedureReturn #False : EndIf
+  *cfg\CorsOrigin = ProgramParameter(i)
+```
+
+### Step 4 — Use the field in `main.pb`
+
+After `ParseCLI` returns, read the new field from `g_Config` and apply it
+before calling `StartServer`:
+
+```purebasic
+If g_Config\CorsEnabled
+  ; configure CORS headers, etc.
+EndIf
+```
 
 ---
 
-## 2. Adding a Custom Request Handler
+## 2. Adding a New HTTP Handler
 
-### The g_Handler function pointer
-
-`TcpServer.pbi` declares a global function pointer with a typed prototype:
+The server's single dispatch point is the `g_Handler` function pointer defined
+in `TcpServer.pbi`:
 
 ```purebasic
 Prototype.i ConnectionHandlerProto(connection.i, raw.s)
 Global g_Handler.ConnectionHandlerProto
 ```
 
-`StartServer()` dispatches every complete HTTP request to this pointer. You assign
-it in `main.pb` before calling `StartServer()`:
+`HandleRequest` in `main.pb` is the built-in implementation. It follows this
+sequence for every request:
+
+1. `ParseHttpRequest(raw, req)` — parse into `HttpRequest`.
+2. `ApplyRewrites(req\Path, ...)` — rewrite or redirect.
+3. `ServeEmbeddedFile(connection, req\Path)` — serve from embedded pack.
+4. `ServeFile(connection, @g_Config, @req, ...)` — serve from disk.
+5. `LogAccess(...)` — write access log entry.
+
+### Adding a handler before the disk-serve step
+
+To intercept requests before `ServeFile` — for example, to implement a simple
+dynamic route — write a wrapper around `HandleRequest`:
 
 ```purebasic
-g_Handler = @HandleRequest()
-```
-
-To replace the handler entirely, write a procedure with the same signature,
-assign it to `g_Handler`, and remove (or call from within) the original:
-
-```purebasic
-Procedure.i MyHandler(connection.i, raw.s)
+Procedure.i MyHandleRequest(connection.i, raw.s)
   Protected req.HttpRequest
+  If Not ParseHttpRequest(raw, req) : ProcedureReturn #False : EndIf
 
-  If Not ParseHttpRequest(raw, req)
-    SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
-    ProcedureReturn #False
+  ; Custom route
+  If req\Method = "GET" And req\Path = "/api/status"
+    SendTextResponse(connection, #HTTP_200, "application/json", ~"{\"status\":\"ok\"}")
+    LogAccess(NetworkClientIP(connection), req\Method, req\Path,
+              req\Version, #HTTP_200, 14, "", "")
+    ProcedureReturn #True
   EndIf
 
-  ; ... your handling logic ...
-  ProcedureReturn #True
+  ; Fall through to built-in handler for everything else
+  ProcedureReturn HandleRequest(connection, raw)
 EndProcedure
-
-; In Main():
-g_Handler = @MyHandler()
 ```
 
-### Accessing the parsed request
-
-`ParseHttpRequest(raw, req)` fills an `HttpRequest` structure (defined in
-`Types.pbi`):
+Then assign it before `StartServer`:
 
 ```purebasic
-Structure HttpRequest
-  Method.s           ; "GET", "POST", "HEAD", etc.
-  Path.s             ; Decoded, normalized URL path — no query string
-  QueryString.s      ; Raw query string (after "?"), or ""
-  Version.s          ; "HTTP/1.1" or "HTTP/1.0"
-  RawHeaders.s       ; Raw header lines, CRLF-separated
-  ContentLength.i    ; Value of Content-Length, or 0
-  Body.s             ; Request body (POST data), or ""
-  IsValid.i          ; #True if parsed successfully
-  ErrorCode.i        ; 400 on parse failure
-EndStructure
+g_Handler = @MyHandleRequest()
+StartServer(g_Config\Port)
 ```
 
-Extract individual header values with `GetHeader()` from `HttpParser.pbi`:
+Because `g_Handler` is a function pointer, the original `HandleRequest` remains
+callable as a named procedure from your wrapper at no extra cost.
 
-```purebasic
-Protected authHeader.s = GetHeader(req\RawHeaders, "Authorization")
-Protected accept.s     = GetHeader(req\RawHeaders, "Accept")
-```
+### Replacing the handler entirely
 
-`GetHeader()` is case-insensitive on the header name and returns `""` when the
-header is absent.
-
-### Sending a custom response
-
-**For text responses** (HTML, JSON, plain text), use `SendTextResponse()` from
-`HttpResponse.pbi`. It handles UTF-8 byte length correctly and adds
-`Content-Length`:
-
-```purebasic
-Protected body.s = ~"{\"status\":\"ok\"}"
-SendTextResponse(connection, #HTTP_200, "application/json; charset=utf-8", body)
-```
-
-**For responses requiring extra headers** (redirects, custom cache control, etc.),
-build the header block manually and send it with `SendNetworkString()`:
-
-```purebasic
-Protected extra.s = "Location: /new-path" + #CRLF$ + "Cache-Control: no-store" + #CRLF$
-SendNetworkString(connection, BuildResponseHeaders(#HTTP_301, extra, 0), #PB_Ascii)
-```
-
-`BuildResponseHeaders(statusCode, extraHeaders, bodyLen)` always appends the
-`Server:`, `Content-Length:`, and `Connection: close` headers. Each line in
-`extraHeaders` must end with `#CRLF$`.
-
-**For binary responses** (files, buffers), send the header block as ASCII and
-the body with `SendNetworkData()`:
-
-```purebasic
-Protected *buffer = ...   ; pointer to binary data
-Protected size.i  = ...   ; byte count
-Protected extra.s = "Content-Type: image/png" + #CRLF$
-SendNetworkString(connection, BuildResponseHeaders(#HTTP_200, extra, size), #PB_Ascii)
-SendNetworkData(connection, *buffer, size)
-FreeMemory(*buffer)
-```
+If you do not need the built-in disk-serve logic, assign your own procedure
+directly and implement the full parse-respond-log cycle yourself. The built-in
+`HandleRequest` body in `main.pb` serves as the canonical example.
 
 ---
 
-## 3. Adding a New CLI Flag
+## 3. Adding Middleware-Style Processing Before `ServeFile`
 
-Adding a flag requires changes in four places and a matching test.
-
-### Step 1 — Add a field to ServerConfig in Types.pbi
-
-Open `src/Types.pbi` and add your field to `Structure ServerConfig`:
-
-```purebasic
-Structure ServerConfig
-  ; ... existing fields ...
-  MyNewOption.i    ; #True if --my-flag was passed
-EndStructure
-```
-
-Use `.i` for booleans and integers, `.s` for file paths or string values.
-Place the field after the existing fields; PureBasic structures are sequential
-and there is no padding issue.
-
-### Step 2 — Set the default in LoadDefaults() in Config.pbi
-
-Open `src/Config.pbi` and add a default assignment in `LoadDefaults()`:
+`ServeFile` is a regular procedure called from `HandleRequest`. To run
+middleware logic before it — header injection, authentication checks, rate
+limiting — insert calls between `ApplyRewrites` and `ServeFile` in your custom
+handler:
 
 ```purebasic
-Procedure LoadDefaults(*cfg.ServerConfig)
-  ; ... existing defaults ...
-  *cfg\MyNewOption = #False
-EndProcedure
-```
-
-Always set a safe default so the server works correctly when the flag is
-absent.
-
-### Step 3 — Parse the flag in ParseCLI() in Config.pbi
-
-Add an `ElseIf` branch in the `While i < count` parsing loop:
-
-```purebasic
-ElseIf param = "--my-flag"
-  *cfg\MyNewOption = #True
-```
-
-For flags that take a value, consume the next parameter:
-
-```purebasic
-ElseIf param = "--my-value"
-  i + 1
-  If i >= count : ProcedureReturn #False : EndIf
-  *cfg\MyStringValue = ProgramParameter(i)
-```
-
-Always guard the lookahead with `If i >= count : ProcedureReturn #False : EndIf`
-to return a clean error when the flag is given without a value.
-
-For numeric flags, validate the range before accepting:
-
-```purebasic
-ElseIf param = "--timeout"
-  i + 1
-  If i >= count : ProcedureReturn #False : EndIf
-  Protected tval.i = Val(ProgramParameter(i))
-  If tval < 1 Or tval > 3600 : ProcedureReturn #False : EndIf
-  *cfg\TimeoutSecs = tval
-```
-
-### Step 4 — Print the value in the startup banner in main.pb
-
-Find the startup banner section in `Main()` (the `PrintN(#APP_NAME ...)` block)
-and add a line for your flag so operators can see it is active:
-
-```purebasic
-If g_Config\MyNewOption
-  PrintN("My flag:    enabled")
+; After rewrite, before disk serve:
+If Not CheckAuthentication(@req)
+  SendTextResponse(connection, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+  ProcedureReturn #False
 EndIf
+
+; Proceed to normal file serving
+ServeFile(connection, @g_Config, @req, @bytesOut, @statusCode)
 ```
 
-### Step 5 — Write a test in test_config.pb
-
-Add a `ProcedureUnit` that confirms the default value:
-
-```purebasic
-ProcedureUnit Config_LoadDefaults_MyNewOption()
-  Protected cfg.ServerConfig
-  LoadDefaults(@cfg)
-  Assert(cfg\MyNewOption = #False, "MyNewOption should be #False by default")
-EndProcedureUnit
-```
-
-Do not write a test that calls `ParseCLI()` and asserts on its return value —
-see the `ProgramParameter()` pitfall in `TESTING.md`.
+`ServeFile` accepts optional `*bytesOut` and `*statusOut` pointer arguments.
+Pass pointers to local variables if you need the byte count and final status
+for your access log call.
 
 ---
 
-## 4. Adding a New Module
+## 4. How Rewrite Rules Integrate
 
-### File naming and placement
-
-Create the file as `src/MyFeature.pbi`. PureBasic convention in this project is
-that `.pbi` files are includes (not standalone compilable units) and `.pb` files
-are entry points. All modules use `EnableExplicit` at the top and declare their
-public API as top-level `Procedure` definitions (no namespacing — PureBasic does
-not have modules/namespaces).
+`ApplyRewrites` is called in `HandleRequest` before both embedded-asset and
+disk-serve steps. Its full signature:
 
 ```purebasic
-; MyFeature.pbi — brief description of what this module provides
-; Include with: XIncludeFile "MyFeature.pbi"
-; Provides: MyFeatureInit(), MyFeatureProc(), MyFeatureCleanup()
-; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi
-EnableExplicit
-
-Procedure.i MyFeatureProc(input.s)
-  ; ...
-  ProcedureReturn result
-EndProcedure
+Procedure.i ApplyRewrites(path.s, docRoot.s, *result.RewriteResult)
 ```
 
-### Include order
+Returns `#True` when a rule matched; fills `*result\Action`:
 
-PureBasic resolves names at the point they are declared — there is no link-time
-symbol resolution. The `XIncludeFile` chain in `src/main.pb` is the authoritative
-include order. Add your module's include after any modules it depends on:
+- `Action = 1` (rewrite): update `req\Path` to `result\NewPath` and continue
+  to `ServeFile`. Strip a query string from `NewPath` if `?` is present and
+  preserve it in `req\QueryString`.
+- `Action = 2` (redirect): send a 301 or 302 using `BuildResponseHeaders` and
+  a `Location:` header and return immediately.
+
+The built-in `HandleRequest` in `main.pb` demonstrates both cases. To add
+rewrite rules at runtime without restarting, call:
 
 ```purebasic
-; In src/main.pb, after your dependencies:
-XIncludeFile "MyFeature.pbi"
+LoadGlobalRules("/etc/pshs/rewrite.conf")
 ```
 
-Then add the same line in the same relative position in `tests/TestCommon.pbi`:
+This acquires `g_RewriteMutex`, frees the existing global rule set, and loads
+from the file. Worker threads already evaluating rules will finish their current
+evaluation first.
 
-```purebasic
-; In tests/TestCommon.pbi:
-XIncludeFile "../src/MyFeature.pbi"
-```
-
-The paths in `TestCommon.pbi` use `../src/` because PureUnit runs from the
-`tests/` directory.
-
-### Forward declarations for circular dependencies
-
-If your module calls a procedure defined in a module that is included *after* it
-(because that later module depends on yours), you must forward-declare the called
-procedure. `FileServer.pbi` demonstrates this:
-
-```purebasic
-; Forward declarations for modules included after this file
-Declare.s BuildDirectoryListing(dirPath.s, urlPath.s)
-Declare.i ParseRangeHeader(header.s, fileSize.i, *range.RangeSpec)
-Declare.i SendPartialResponse(connection.i, fsPath.s, *range.RangeSpec, mimeType.s, fileSize.i)
-```
-
-Place `Declare` statements at the top of the file that needs them, before the
-first procedure that uses the forward-declared name.
-
-### PureUnit-compatible global storage
-
-If your module needs global data structures beyond scalar variables, follow the
-`AllocateMemory` pattern from `RewriteEngine.pbi` — never use `Global Dim` or
-`Global NewList`/`Global NewMap` at file scope. See `TESTING.md` section 4 for
-the full explanation. The pattern in brief:
-
-```purebasic
-; WRONG — crashes under PureUnit
-Global Dim g_Items.MyStruct(99)
-
-; CORRECT
-Global g_ItemsMem.i    ; raw pointer to memory block
-Global g_ItemCount.i
-
-Procedure InitMyFeature()
-  g_ItemsMem  = AllocateMemory(100 * SizeOf(MyStruct))
-  g_ItemCount = 0
-EndProcedure
-
-Procedure CleanupMyFeature()
-  If g_ItemsMem = 0 : ProcedureReturn : EndIf
-  FreeMemory(g_ItemsMem)
-  g_ItemsMem  = 0
-  g_ItemCount = 0
-EndProcedure
-```
-
-Call `InitMyFeature()` from `Main()` in `main.pb` before `StartServer()`, and
-`CleanupMyFeature()` in both the success and failure shutdown paths.
+Per-directory `rewrite.conf` files are loaded automatically on demand by
+`ApplyRewrites` when a file exists at `docRoot + urlDir + "/rewrite.conf"`.
+The cache is invalidated by mtime change, so per-directory rules update without
+a server restart.
 
 ---
 
-## 5. Adding a Middleware Layer
+## 5. Adding a New MIME Type
 
-"Middleware" in this codebase means code that runs inside `HandleRequest()` after
-`ParseHttpRequest()` and before `ServeFile()`. There is no formal middleware
-interface — you simply add code in the right place.
-
-### Existing middleware: rewrite engine and logger
-
-`HandleRequest()` in `main.pb` already contains two middleware-like layers:
-
-1. **RewriteEngine** — applied before serving; can rewrite the path or redirect
-   the client entirely.
-2. **Logger** — called after serving to write the access log line.
-
-### Example: auth header check
-
-To require a bearer token on all requests, insert the check after parsing and
-before the rewrite engine:
+`MimeTypes.pbi` uses a single `Select/Case` block. Add a `Case` line in the
+appropriate group:
 
 ```purebasic
-Procedure.i HandleRequest(connection.i, raw.s)
-  Protected req.HttpRequest
-  Protected clientIP.s = IPString(GetClientIP(connection))
-  ; ...
+Procedure.s GetMimeType(extension.s)
+  Select extension
+    ; ... existing cases ...
+    Case "glb"           : ProcedureReturn "model/gltf-binary"
+    Case "gltf"          : ProcedureReturn "model/gltf+json"
+    Default              : ProcedureReturn "application/octet-stream"
+  EndSelect
+EndProcedure
+```
 
-  If Not ParseHttpRequest(raw, req)
-    SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
-    ProcedureReturn #False
+The `extension` parameter is always lowercase and without a leading dot, as
+normalized by `LCase(GetExtensionPart(fsPath))` in `ServeFile`. No other
+changes are needed — `GetMimeType` is called from both `ServeFile` and
+`ServeEmbeddedFile`.
+
+---
+
+## 6. Adding a Custom Response Type
+
+If you need a response type that `BuildResponseHeaders` + `SendNetworkData`
+does not cover (for example, chunked transfer encoding or server-sent events),
+write a new procedure in `HttpResponse.pbi` following the existing pattern:
+
+```purebasic
+; SendBinaryResponse — send a binary buffer with a custom content type
+Procedure SendBinaryResponse(connection.i, statusCode.i, contentType.s,
+                              *data, dataLen.i)
+  Protected extra.s = "Content-Type: " + contentType + #CRLF$
+  SendNetworkString(connection, BuildResponseHeaders(statusCode, extra, dataLen),
+                    #PB_Ascii)
+  If dataLen > 0
+    SendNetworkData(connection, *data, dataLen)
   EndIf
-
-  ; --- Auth middleware ---
-  Protected auth.s = GetHeader(req\RawHeaders, "Authorization")
-  If auth <> "Bearer mysecrettoken"
-    SendTextResponse(connection, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
-    LogAccess(clientIP, req\Method, req\Path, req\Version, #HTTP_403, 0, "", "")
-    ProcedureReturn #False
-  EndIf
-  ; --- End auth middleware ---
-
-  ; ... rewrite engine, ServeFile, etc. ...
 EndProcedure
 ```
 
-### Example: request logging middleware
-
-The existing logger is already an "after" middleware — it runs after `ServeFile()`
-to record the status and byte count. The pattern for a "before" logger (e.g. for
-debugging) would insert a `LogError("info", ...)` call before the rewrite engine:
-
-```purebasic
-LogError("info", req\Method + " " + req\Path + " from " + clientIP)
-```
-
-This writes to the error log (not the access log) because `LogError()` is the
-only logging call available before the response status and byte count are known.
-
-### Inserting between rewrite and file serving
-
-The exact call sequence in `HandleRequest()` is:
-
-1. `ParseHttpRequest()` — produces the `req` structure.
-2. `ApplyRewrites()` — may modify `req\Path` or send a redirect.
-3. `ServeEmbeddedFile()` — tries the in-memory asset pack.
-4. `ServeFile()` — serves from disk.
-5. `LogAccess()` — records the access log entry.
-
-To insert processing between the rewrite engine and file serving, add your code
-between steps 2 and 3. You have access to the fully parsed and rewritten `req`
-at that point.
+`BuildResponseHeaders` always adds `Connection: close`, so the client will
+close after the response. If you need keep-alive, bypass `BuildResponseHeaders`
+and assemble the header block manually.
 
 ---
 
-## 6. Embedding a Web Application
+## 7. Adding a New Module
 
-This section covers the full workflow for shipping a web application inside the
-server binary. The build mechanics are also described in `BUILDING.md`; this
-section focuses on the code-level integration.
+### Naming conventions
 
-### Workflow overview
+- File name: lowercase with camelcase, `.pbi` extension (e.g.
+  `AuthMiddleware.pbi`).
+- Begin with `EnableExplicit` and a comment header giving the module name,
+  purpose, provided symbols, and dependencies.
+- Name all private (module-internal) procedures with a trailing underscore
+  (e.g. `HashPassword_()`). PureBasic has no visibility modifiers; the
+  underscore is a convention.
 
-1. Build your frontend into a distribution directory (e.g. `dist/`).
-2. Pack it into a `.zip` with `scripts/pack_assets.sh`.
-3. Add `UseZipPacker()`, a `DataSection` block, and update the
-   `OpenEmbeddedPack()` call in `main.pb`.
-4. Recompile.
+### `EnableExplicit`
 
-### OpenEmbeddedPack() / ServeEmbeddedFile() / CloseEmbeddedPack()
+Every module must begin with `EnableExplicit`. This requires every variable to
+be declared before use, preventing typo-induced bugs that are otherwise silent
+in PureBasic.
 
-All three procedures are in `src/EmbeddedAssets.pbi`.
+### `XIncludeFile` order in `main.pb`
 
-**Opening the pack at startup:**
+Insert the `XIncludeFile` line at the point in `main.pb`'s include list where
+all your module's dependencies are already included. Refer to the module map in
+`ARCHITECTURE.md` for the current order. Because `XIncludeFile` is idempotent,
+the position only matters for forward-declaration resolution.
+
+If your module calls procedures from a module that appears later in the include
+list, add forward `Declare` statements at the top of your module, as
+`FileServer.pbi` does for `BuildDirectoryListing`, `ParseRangeHeader`, and
+`SendPartialResponse`.
+
+### Add the module to `TestCommon.pbi`
+
+```purebasic
+; tests/TestCommon.pbi — add after its last dependency:
+XIncludeFile "../src/AuthMiddleware.pbi"
+```
+
+Then create `tests/test_authmiddleware.pb` and verify with `run_tests.sh`.
+
+### Global variable rules
+
+Only scalar `Global` variables (`.i`, `.s`, `.q`, etc.) are safe in modules
+that will be unit-tested with PureUnit. See `TESTING.md` section 4 for the
+full explanation of why `Global Dim` arrays and `Global NewList`/`Global NewMap`
+crash under PureUnit, and how to replace them with `AllocateMemory` blocks.
+
+---
+
+## 8. Thread Safety
+
+### What is protected
+
+| Resource | Mutex | Notes |
+|---|---|---|
+| `g_LogFile`, `g_ErrorLogFile`, all rotation state | `g_LogMutex` | Both log files share one mutex |
+| All rewrite rule arrays and per-directory cache | `g_RewriteMutex` | Acquired by `ApplyRewrites`, `LoadGlobalRules`, `GlobalRuleCount` |
+| `g_CloseList` | `g_CloseMutex` | Worker threads push; main thread pops |
+
+### What is safe to read without a mutex
+
+- `g_Config` — written once by `ParseCLI` on the main thread before
+  `StartServer` is called; treated as read-only from that point. All modules
+  receive a `*cfg.ServerConfig` pointer; no module reads `g_Config` directly
+  except `HandleRequest` in `main.pb`.
+- `g_Handler` — set once before `StartServer`. Never written by worker threads.
+- `g_EmbeddedPack` — set once by `OpenEmbeddedPack` before `StartServer`.
+  `ServeEmbeddedFile` reads it from worker threads; no write happens at runtime.
+
+### Adding new shared state
+
+If your extension requires state that is read and written by both the main
+thread and worker threads:
+
+1. Declare a mutex as a `Global .i` variable in your module.
+2. Create it in your `Init*()` procedure with `CreateMutex()`.
+3. Wrap every read and write (not just writes) that could race with
+   `LockMutex` / `UnlockMutex`.
+4. Document the mutex in the module's comment header and in `ARCHITECTURE.md`'s
+   mutex inventory.
+
+Do not call `CloseNetworkConnection` from worker threads. See `ARCHITECTURE.md`
+section 4 for the explanation of the close-queue pattern.
+
+---
+
+## 9. Compiling with Embedded Assets
+
+Embedded assets allow you to ship a compiled-in web application so that the
+binary requires no separate file deployment.
+
+### Build time
+
+Pack your web application's dist directory into a ZIP archive. The scripts
+directory provides a helper:
+
+```bash
+scripts/pack_assets.sh dist/ webapp.zip
+```
+
+### Source changes in `main.pb`
+
+Add `UseZipPacker()` near the top of `main.pb` (before any `DataSection`) and
+embed the archive in a `DataSection` block:
 
 ```purebasic
 UseZipPacker()
@@ -413,86 +338,118 @@ DataSection
   webapp:    IncludeBinary "webapp.zip"
   webappEnd:
 EndDataSection
+```
 
-; In Main(), before StartServer():
+The `?webapp` and `?webappEnd` label addresses let PureBasic compute the
+embedded data pointer and size at compile time.
+
+### Opening the pack at startup
+
+In `Main()`, call `OpenEmbeddedPack` before `StartServer`:
+
+```purebasic
 OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp)
+StartServer(g_Config\Port)
 ```
 
-`OpenEmbeddedPack()` calls `CatchPack(#PB_Any, *packData, packSize)` from
-PureBasic's packer library. The `g_EmbeddedPack` global is set to the returned
-handle, which is checked by `ServeEmbeddedFile()` on every request.
+### Runtime behavior
 
-**Serving a file from the pack:**
+`HandleRequest` calls `ServeEmbeddedFile(connection, req\Path)` before
+`ServeFile`. `ServeEmbeddedFile` strips the leading `/` to form a
+pack-relative path (e.g. `"/css/app.css"` becomes `"css/app.css"`), and calls
+`UncompressPackMemory` to decompress directly into a 4 MB heap buffer. If the
+path is not found in the pack, the function returns `#False` and `HandleRequest`
+falls through to disk serving.
 
-`ServeEmbeddedFile(connection, urlPath)` is already called in `HandleRequest()`
-before `ServeFile()`. It strips the leading `/` from the URL path to get the
-pack-relative path and calls `UncompressPackMemory()` with a 4 MB ceiling buffer.
+This means filesystem files always override embedded assets during development:
+place your overrides in the document root directory and they will be served
+instead of the packed versions.
+
+### Closing the pack at shutdown
+
+Call `CloseEmbeddedPack()` in your shutdown sequence after `StopServer` returns.
+
+---
+
+## 10. Embedding the Server In-Process
+
+You can incorporate PureSimpleHTTPServer into a larger PureBasic application
+(for example, to expose an HTTP API alongside a GUI).
+
+### Include order
+
+In your application's main file, include all server modules in the same
+dependency order used by `main.pb`:
 
 ```purebasic
-; In HandleRequest():
-If ServeEmbeddedFile(connection, req\Path)
-  LogAccess(...)
-  ProcedureReturn #True
-EndIf
-; Falls through to ServeFile() if not in pack
+XIncludeFile "src/Global.pbi"
+XIncludeFile "src/Types.pbi"
+; ... all modules in order ...
+XIncludeFile "src/SignalHandler.pbi"
 ```
 
-If the file is not found in the pack (e.g. a path that only exists on disk),
-`ServeEmbeddedFile()` returns `#False` and normal disk serving proceeds. This
-means you can mix embedded and disk assets — embedded assets are tried first.
-
-**Closing the pack at shutdown:**
+### Startup sequence
 
 ```purebasic
-; Already called in Main() on both success and failure exit paths:
+; 1. Load and apply configuration
+Protected cfg.ServerConfig
+LoadDefaults(@cfg)
+cfg\Port          = 9000
+cfg\RootDirectory = "/srv/www"
+; (set any other fields as needed)
+
+; 2. Open log files (optional)
+If cfg\LogFile <> "" : OpenLogFile(cfg\LogFile) : EndIf
+If cfg\ErrorLogFile <> "" : OpenErrorLog(cfg\ErrorLogFile) : EndIf
+g_ServerPID = GetPID()   ; requires your own ImportC or platform call
+
+; 3. Initialize rewrite engine if using rewrite rules
+InitRewriteEngine()
+If cfg\RewriteFile <> "" : LoadGlobalRules(cfg\RewriteFile) : EndIf
+
+; 4. Open embedded pack if using one
+OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp)
+
+; 5. Assign request handler and start server
+g_Handler = @HandleRequest()
+InstallSignalHandlers()
+StartServer(cfg\Port)   ; blocks until StopServer() is called
+```
+
+### Shutdown sequence
+
+`StartServer` blocks. To stop the server from another thread or a signal
+handler, call `StopServer()`. After `StartServer` returns:
+
+```purebasic
+RemoveSignalHandlers()
+StopDailyRotation()
+CloseLogFile()
+CloseErrorLog()
 CloseEmbeddedPack()
+CleanupRewriteEngine()
 ```
 
-`CloseEmbeddedPack()` calls `ClosePack()` and resets `g_EmbeddedPack` to 0. It
-is safe to call when no pack is open.
+### Running `StartServer` on a background thread
 
-### Fallback to disk (development mode)
+If your application has its own main loop (e.g. a PureBasic window event loop),
+run the server on a background thread:
 
-During frontend development you do not want to repack and recompile on every
-change. Leave `OpenEmbeddedPack()` called with the default zero arguments (or
-simply do not add the `DataSection` block). When `g_EmbeddedPack` is 0,
-`ServeEmbeddedFile()` returns `#False` immediately without touching the pack,
-and all requests fall through to `ServeFile()`. Point `--root` at your live
-build output directory and edit freely.
+```purebasic
+Global g_ServerThread.i
 
-### scripts/pack_assets.sh usage
+Procedure ServerThreadProc(*unused)
+  g_Handler = @HandleRequest()
+  StartServer(g_Config\Port)
+EndProcedure
 
-```
-./scripts/pack_assets.sh <assets_dir> <output_zip>
+g_ServerThread = CreateThread(@ServerThreadProc(), 0)
 ```
 
-Example — build a React app and pack it:
+To shut the server down cleanly, call `StopServer()` from your main thread and
+then `WaitThread(g_ServerThread)`.
 
-```
-npm run build                                       # produces dist/
-./scripts/pack_assets.sh dist/ src/webapp.zip
-pbcompiler -cl -t -z -o PureSimpleHTTPServer src/main.pb
-```
-
-The script runs `zip -r` from inside `<assets_dir>`, so the archive contains
-paths relative to that directory. A file at `dist/css/app.css` becomes
-`css/app.css` in the zip, and `ServeEmbeddedFile()` serves it when the client
-requests `/css/app.css`.
-
-The script excludes `.DS_Store` files and `__MACOSX/` metadata that macOS adds
-to zips. If your frontend build tool produces other unwanted files (source maps,
-`.map` files, etc.), pass additional `--exclude` patterns directly to `zip` by
-modifying the script or using `zip` manually.
-
-### Path mapping
-
-| URL path | Pack path looked up |
-|----------|---------------------|
-| `/` | `index.html` (hardcoded fallback in `ServeEmbeddedFile`) |
-| `/index.html` | `index.html` |
-| `/css/app.css` | `css/app.css` |
-| `/js/bundle.js.map` | `js/bundle.js.map` |
-
-The 4 MB per-file buffer ceiling in `ServeEmbeddedFile()` is suitable for most
-web application assets. If you embed very large files (video, large WASM blobs),
-you will need to increase `maxSize` in `EmbeddedAssets.pbi`.
+Note that `CloseNetworkConnection` is called from the main server event loop
+inside `StartServer`. When the server runs on a background thread, that
+background thread becomes the "main thread" for network close operations.
+Do not call `CloseNetworkConnection` from any other thread.
