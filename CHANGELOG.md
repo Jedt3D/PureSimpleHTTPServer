@@ -6,6 +6,21 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.0.2 — 2026-03-15 01:00
+
+### Fix compile error: replace `NetworkClientIP()` with `IPString(GetClientIP())`
+
+**Fixed**
+- `src/main.pb` — `NetworkClientIP(connection)` does not exist in PureBasic 6.x. Replaced with `IPString(GetClientIP(connection))`: `GetClientIP(Client)` returns the numeric IP of a connected client; `IPString()` converts it to a dotted string (`"127.0.0.1"`). This fixes the compile error `NetworkClientIP() is not a function, array, list, map or macro` on line 33.
+
+**Pitfalls documented** (common-pitfalls.md #21)
+- `NetworkClientIP()` does not exist; use `IPString(GetClientIP(Client))` for dotted-decimal client IP
+
+**Docs**
+- `docs/DEVELOPER_GUIDE.md` — added `NetworkClientIP` → `IPString(GetClientIP())` gotcha
+
+---
+
 ## v1.0.1 — 2026-03-15 00:30
 
 ### Default web root changed from CWD to `wwwroot/` next to binary

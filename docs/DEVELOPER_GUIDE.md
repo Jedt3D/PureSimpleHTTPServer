@@ -143,6 +143,17 @@ Protected serverID.i = CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)
 event = NetworkServerEvent(serverID)
 ```
 
+### `NetworkClientIP()` does not exist — use `IPString(GetClientIP(Client))`
+```purebasic
+; WRONG — compile error: not a function
+Protected clientIP.s = NetworkClientIP(connection)
+
+; CORRECT — two-step: get numeric IP, convert to dotted string
+Protected clientIP.s = IPString(GetClientIP(connection))
+```
+`GetClientIP(Client)` returns the numeric IP; `IPString()` converts it to `"127.0.0.1"` form.
+For IPv6 connections, call `FreeIP()` on the value returned by `GetClientIP()` when done.
+
 ### Thread-safe mode requires `-t` compiler flag
 `CreateThread()`, `CreateMutex()`, `LockMutex()` are always available, but safe concurrent memory allocation and most library internals require `-t`:
 ```bash

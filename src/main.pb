@@ -30,7 +30,7 @@ Global g_Config.ServerConfig
 ; HandleRequest — called by TcpServer for each complete HTTP request
 Procedure.i HandleRequest(connection.i, raw.s)
   Protected req.HttpRequest
-  Protected clientIP.s = NetworkClientIP(connection)
+  Protected clientIP.s = IPString(GetClientIP(connection))
   Protected result.i, status.i
 
   If Not ParseHttpRequest(raw, req)
