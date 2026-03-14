@@ -5,6 +5,9 @@ The target audience is PureBasic developers who have the source SDK and want to
 add new features — flags, handlers, MIME types, middleware, new modules, or
 embedded asset workflows.
 
+> **Prerequisites:** Read [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md)
+> first for a complete walkthrough of `main.pb` and how all modules fit together.
+
 ---
 
 ## 1. Adding a New CLI Flag

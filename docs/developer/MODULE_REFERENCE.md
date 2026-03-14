@@ -1,11 +1,12 @@
 # PureSimpleHTTPServer v1.5.0 — Module Reference
 
-This document describes every `.pbi` module in `src/`. For each module the
-public API (procedures and any exported globals), the compile-time dependencies,
-and implementation details worth knowing when extending the server are listed.
+This document describes every `.pbi` module in `src/` and the entry-point `main.pb`. For each module the public API (procedures and exported globals), the compile-time dependencies, and implementation details worth knowing when extending the server are listed.
 
 Inclusion order follows `main.pb` and `tests/TestCommon.pbi`. The `XIncludeFile`
 directive is idempotent — each file is compiled at most once per compilation unit.
+
+> **Tutorial:** For a step-by-step walkthrough of how all modules fit together, see
+> [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md).
 
 ---
 
@@ -820,3 +821,63 @@ external `logrotate` to rename the old log file freely.
 
 `#SIGHUP = 1` is identical on macOS and Linux, so no per-platform constant
 is needed inside the `CompilerIf` block.
+
+---
+
+## main.pb
+
+**Purpose:** Application entry point. Includes all `.pbi` modules, defines
+`HandleRequest` (the default `g_Handler` implementation), and runs the startup /
+shutdown sequence.
+
+`main.pb` is not a reusable library module — it is never `XIncludeFile`'d. It is
+documented here because it defines the only public procedure not covered by a `.pbi`.
+
+### Public Globals
+
+| Global | Type | Description |
+|--------|------|-------------|
+| `g_Config` | `ServerConfig` | Runtime configuration; populated by `LoadDefaults` + `ParseCLI`, then read by `HandleRequest` on every request |
+
+### Public Procedures
+
+#### `HandleRequest(connection.i, raw.s) → i`
+
+The default HTTP request handler assigned to `g_Handler` before `StartServer()` is called.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `connection` | `.i` | Client connection ID from `EventClient()` |
+| `raw` | `.s` | Complete raw HTTP request string (accumulated through `\r\n\r\n`) |
+
+Returns `#True` on a successful response (2xx/3xx sent), `#False` if an error response was sent.
+
+**What it does, in order:**
+
+1. `ParseHttpRequest(raw, req)` — parse method, path, version, headers
+2. `GetHeader(req\RawHeaders, ...)` — extract `Referer` and `User-Agent` for logging
+3. `ApplyRewrites(req\Path, ...)` — apply global and per-directory rewrite rules; redirect or silently change the path
+4. `ServeEmbeddedFile(connection, req\Path)` — try the in-memory ZIP pack; skip if no pack
+5. `ServeFile(connection, @g_Config, @req, ...)` — serve from disk with full feature set
+6. `LogAccess(...)` — write one Apache CLF line
+
+Only `GET` requests proceed past step 2. All other methods receive a `400 Bad Request`.
+
+**To replace this handler:** assign any procedure matching `ConnectionHandlerProto` to `g_Handler` before calling `StartServer()`. See `EXTENDING.md` and `BUILD_OUR_HTTP_SERVER.md` for worked examples.
+
+### Startup Sequence
+
+```
+LoadDefaults → ParseCLI → InitRewriteEngine → LoadGlobalRules
+→ configure Logger globals → getpid → OpenLogFile → OpenErrorLog
+→ write PID file → StartDailyRotation → InstallSignalHandlers
+→ OpenEmbeddedPack → g_Handler = @HandleRequest → StartServer
+```
+
+### Shutdown Sequence (reverse of startup)
+
+```
+StartServer returns → RemoveSignalHandlers → StopDailyRotation
+→ CloseLogFile → CloseErrorLog → DeleteFile(PidFile)
+→ CleanupRewriteEngine → CloseEmbeddedPack
+```

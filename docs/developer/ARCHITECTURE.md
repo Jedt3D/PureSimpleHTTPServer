@@ -1,5 +1,8 @@
 # PureSimpleHTTPServer v1.5.0 — Architecture Reference
 
+> **New to the codebase?** Start with [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md) —
+> a step-by-step tutorial that builds a server from scratch using the same libraries.
+
 ## 1. Overview
 
 PureSimpleHTTPServer is a single-binary HTTP/1.1 static file server written entirely in PureBasic 6.x, compiled with the C backend (`pbcompiler -cl -t`). The `-t` flag enables thread-safe mode, which is required by the thread-per-connection dispatch model.
