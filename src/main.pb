@@ -1,5 +1,5 @@
 ; main.pb — PureSimpleHTTPServer entry point
-; Phase A: TCP server that responds with a Hello World / request-info HTML page
+; Phase B: static file serving from disk
 ;
 ; Compile as console app:
 ;   pbcompiler -cl -o PureSimpleHTTPServer src/main.pb
@@ -15,6 +15,12 @@ XIncludeFile "UrlHelper.pbi"
 XIncludeFile "HttpParser.pbi"
 XIncludeFile "HttpResponse.pbi"
 XIncludeFile "TcpServer.pbi"
+XIncludeFile "MimeTypes.pbi"
+XIncludeFile "FileServer.pbi"
+XIncludeFile "Config.pbi"
+
+; g_Config — server configuration (global so HandleRequest can access it)
+Global g_Config.ServerConfig
 
 ; HandleRequest — called by TcpServer for each complete HTTP request
 Procedure.i HandleRequest(connection.i, raw.s)
@@ -25,48 +31,34 @@ Procedure.i HandleRequest(connection.i, raw.s)
     ProcedureReturn #False
   EndIf
 
-  ; Phase A: serve an informational HTML page echoing the parsed request
-  Protected body.s
-  body = "<!DOCTYPE html>" + #LF$
-  body + "<html>" + #LF$
-  body + "<head><title>" + #APP_NAME + " v" + #APP_VERSION + "</title></head>" + #LF$
-  body + "<body>" + #LF$
-  body + "<h1>" + #APP_NAME + " v" + #APP_VERSION + "</h1>" + #LF$
-  body + "<table border='1' cellpadding='4'>" + #LF$
-  body + "<tr><td><b>Method</b></td><td>" + req\Method + "</td></tr>" + #LF$
-  body + "<tr><td><b>Path</b></td><td>" + req\Path + "</td></tr>" + #LF$
-  body + "<tr><td><b>Query</b></td><td>" + req\QueryString + "</td></tr>" + #LF$
-  body + "<tr><td><b>Version</b></td><td>" + req\Version + "</td></tr>" + #LF$
-  body + "<tr><td><b>Server time</b></td><td>" + HTTPDate(DateUTC()) + "</td></tr>" + #LF$
-  body + "</table>" + #LF$
-  body + "</body></html>"
+  If req\Method = "GET"
+    ProcedureReturn ServeFile(connection, g_Config\RootDirectory, req\Path, g_Config\IndexFiles)
+  EndIf
 
-  SendTextResponse(connection, #HTTP_200, "text/html; charset=utf-8", body)
-  ProcedureReturn #True
+  SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
+  ProcedureReturn #False
 EndProcedure
 
 ; Application entry point
 Procedure Main()
-  Define port.i = #DEFAULT_PORT
+  LoadDefaults(@g_Config)
 
-  ; Optional port override from command line
-  If CountProgramParameters() >= 1
-    port = Val(ProgramParameter(0))
-    If port <= 0 Or port > 65535
-      PrintN("ERROR: Invalid port '" + ProgramParameter(0) + "' (must be 1-65535)")
-      End 1
-    EndIf
+  If Not ParseCLI(@g_Config)
+    PrintN("ERROR: Invalid command-line arguments")
+    PrintN("Usage: PureSimpleHTTPServer [port]")
+    End 1
   EndIf
 
   PrintN(#APP_NAME + " v" + #APP_VERSION)
-  PrintN("Listening on http://localhost:" + Str(port))
+  PrintN("Serving:    " + g_Config\RootDirectory)
+  PrintN("Listening:  http://localhost:" + Str(g_Config\Port))
   PrintN("Press Ctrl+C to stop")
   PrintN("")
 
   g_Handler = @HandleRequest()
 
-  If Not StartServer(port)
-    PrintN("ERROR: Failed to start server on port " + Str(port))
+  If Not StartServer(g_Config\Port)
+    PrintN("ERROR: Failed to start server on port " + Str(g_Config\Port))
     End 1
   EndIf
 EndProcedure

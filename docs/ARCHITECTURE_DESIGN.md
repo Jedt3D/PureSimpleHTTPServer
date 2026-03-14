@@ -47,7 +47,7 @@ Logger.pbi ── Global.pbi
 
 All `XIncludeFile` paths are relative to the file containing the directive, so any module can be included from any location (including `tests/`) and its dependencies resolve correctly.
 
-## HTTP Request Lifecycle (Phase A)
+## HTTP Request Lifecycle (Phase B — current)
 
 ```
 Browser/client
@@ -61,10 +61,17 @@ Raw HTTP string  →  ParseHttpRequest()  →  HttpRequest struct
   │
   ▼
 HandleRequest()  (main.pb)
-  │  reads req\Method, req\Path, req\QueryString
+  │  req\Method = "GET"
   ▼
-SendTextResponse()  →  BuildResponseHeaders() + SendNetworkString()
-(HttpResponse.pbi)
+ServeFile(connection, docRoot, urlPath, indexList)
+  │  (FileServer.pbi)
+  ├── FileSize() = -2 (directory) → ResolveIndexFile() → 403 if no index
+  ├── FileSize() < 0 (missing)    → 404
+  ├── AllocateMemory + ReadData   → 500 on I/O error
+  └── BuildResponseHeaders() + SendNetworkData()  → 200
+        Content-Type via GetMimeType(LCase(GetExtensionPart()))
+        ETag via BuildETag() = hex(size)-hex(mtime)
+        Last-Modified via HTTPDate(GetFileDate())
   │
   ▼
 CloseNetworkConnection()
@@ -107,7 +114,8 @@ Runtime:
 ## Key Design Decisions
 
 1. **`.pbi` modules, never `.pb`** — forces all modules to be include-file-safe (no top-level executable code), enabling PureUnit testing.
-2. **`XIncludeFile` with relative paths** — each module declares its own dependencies; including from any location works correctly.
-3. **Separation of building vs. sending** — `BuildResponseHeaders()` is pure and testable; `SendTextResponse()` is the only I/O boundary.
-4. **`Date.q` for timestamps** — PureBasic `Date()` returns `.q` (Quad, 8-byte), not `.i`. All timestamp variables must be typed `.q`.
+2. **No `Global NewMap`/`Global NewList` at top level** — PureUnit skips top-level initialization; map handles become null → segfault. Use `Select/Case` in procedures instead.
+3. **Separation of building vs. sending** — `BuildResponseHeaders()` is pure and testable; `SendTextResponse()` and `ServeFile()` own the network I/O boundary.
+4. **`Date.q` for timestamps** — PureBasic `Date()` and `GetFileDate()` return `.q` (Quad, 8-byte), not `.i`.
 5. **Content-Length via `StringByteLength(s, #PB_UTF8)`** — not `Len()`, which counts characters not bytes.
+6. **Binary file serving via `ReadData()`/`SendNetworkData()`** — text responses use `SendNetworkString(#PB_UTF8)`; binary file bodies use `SendNetworkData()` to avoid encoding.
