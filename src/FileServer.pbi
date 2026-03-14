@@ -142,6 +142,15 @@ Procedure.i ServeFile(connection.i, *cfg.ServerConfig, *req.HttpRequest, *bytesO
     EndIf
   EndIf
 
+  ; --- Clean URLs: retry with .html extension for extensionless paths ---
+  If fileSize < 0 And *cfg\CleanUrls And GetExtensionPart(urlPath) = ""
+    Protected cleanFsPath.s = fsPath + ".html"
+    If FileSize(cleanFsPath) >= 0
+      fsPath   = cleanFsPath
+      fileSize = FileSize(fsPath)
+    EndIf
+  EndIf
+
   ; --- File not found ---
   If fileSize < 0
     If *cfg\SpaFallback

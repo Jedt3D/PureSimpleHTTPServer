@@ -8,6 +8,8 @@ Procedure.s StatusText(code.i)
   Select code
     Case 200 : ProcedureReturn "OK"
     Case 206 : ProcedureReturn "Partial Content"
+    Case 301 : ProcedureReturn "Moved Permanently"
+    Case 302 : ProcedureReturn "Found"
     Case 304 : ProcedureReturn "Not Modified"
     Case 400 : ProcedureReturn "Bad Request"
     Case 403 : ProcedureReturn "Forbidden"

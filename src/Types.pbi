@@ -49,4 +49,7 @@ Structure ServerConfig
   LogKeepCount.i     ; Max rotated archive files to keep (default: 30)
   LogDaily.i         ; 1 = rotate daily at midnight UTC (default: 1 when log file set)
   PidFile.s          ; Path to PID file (F-3; "" to disable)
+  ; --- G: URL rewriting ---
+  CleanUrls.i        ; #True: try path.html when extensionless path not found
+  RewriteFile.s      ; Path to global rewrite.conf ("" to disable)
 EndStructure

@@ -18,6 +18,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | F-2 | v1.2.0 | Size-based log rotation with archive naming + keep-count | ✅ Done |
 | F-3 | v1.3.0 | Daily midnight UTC rotation thread + PID file | ✅ Done |
 | F-4 | v1.4.0 | SIGHUP log reopen for logrotate integration | ✅ Done |
+| G   | v1.5.0 | URL rewriting and redirecting (`rewrite.conf`, `--clean-urls`) | ✅ Done |
 
 ## Build
 
@@ -33,6 +34,8 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ./PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa]
                        [--log FILE] [--error-log FILE] [--log-level LEVEL]
                        [--log-size MB] [--log-keep N] [--no-log-daily]
+                       [--pid-file FILE]
+                       [--clean-urls] [--rewrite FILE]
 # Default port: 8080, root: wwwroot/ next to the binary
 # Legacy: ./PureSimpleHTTPServer [port]
 ```
@@ -49,6 +52,9 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 | `--log-size MB` | Rotate log when it exceeds MB (default: 100; 0 = disabled) |
 | `--log-keep N` | Max rotated archive files to keep (default: 30) |
 | `--no-log-daily` | Disable daily log rotation at midnight |
+| `--pid-file FILE` | Write process ID to FILE at startup |
+| `--clean-urls` | Serve `/page.html` when `/page` is requested |
+| `--rewrite FILE` | Load URL rewrite/redirect rules from FILE (see `docs/URL_REWRITE.md`) |
 
 ## Features
 
@@ -63,6 +69,9 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 - Thread-per-connection for concurrent request handling
 - Access log in Apache Combined Log Format (CLF) with IP, method, path, status, bytes, Referer, User-Agent
 - Error log with level filtering (`none`/`error`/`warn`/`info`)
+- URL rewriting and redirecting via `rewrite.conf` (exact, glob, regex patterns; `{path}`, `{file}`, `{dir}`, `{re.N}` placeholders)
+- Per-directory rewrite rules (`rewrite.conf` in any served directory, auto-reloaded on change)
+- Clean URLs (`--clean-urls`: `/page` → `/page.html`)
 
 ## Testing
 
@@ -71,7 +80,7 @@ cd tests
 ./run_tests.sh
 ```
 
-86 unit tests across 11 test files. All tests pass.
+108 unit tests across 12 test files. All tests pass.
 
 ## Load Testing
 

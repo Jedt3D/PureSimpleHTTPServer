@@ -1,6 +1,7 @@
 ; main.pb — PureSimpleHTTPServer entry point
 ; Phase F-1: Apache Combined Log Format, error log, log level filtering
 ; Phase F-3: Daily rotation thread, PID file
+; Phase G:   URL rewriting (Caddy-compatible rewrite.conf, --clean-urls)
 ;
 ; Compile as console app (thread-safe mode required):
 ;   pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
@@ -10,6 +11,7 @@
 ;                          [--log FILE] [--error-log FILE] [--log-level LEVEL]
 ;                          [--log-size MB] [--log-keep N] [--no-log-daily]
 ;                          [--pid-file FILE]
+;                          [--clean-urls] [--rewrite FILE]
 ;   ./PureSimpleHTTPServer [port]     (legacy: bare port number, default 8080)
 EnableExplicit
 
@@ -34,6 +36,7 @@ XIncludeFile "DirectoryListing.pbi"
 XIncludeFile "RangeParser.pbi"
 XIncludeFile "EmbeddedAssets.pbi"
 XIncludeFile "Config.pbi"
+XIncludeFile "RewriteEngine.pbi"
 XIncludeFile "SignalHandler.pbi"
 
 ; g_Config — server configuration (global so HandleRequest can access it)
@@ -47,6 +50,8 @@ Procedure.i HandleRequest(connection.i, raw.s)
   Protected bytesOut.i   = 0
   Protected statusCode.i = 0
   Protected referer.s, userAgent.s
+  Protected rwResult.RewriteResult
+  Protected redirHeaders.s, qPos.i
 
   If Not ParseHttpRequest(raw, req)
     SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
@@ -58,6 +63,24 @@ Procedure.i HandleRequest(connection.i, raw.s)
   userAgent = GetHeader(req\RawHeaders, "User-Agent")
 
   If req\Method = "GET"
+    ; Apply rewrite/redirect rules before serving
+    If ApplyRewrites(req\Path, g_Config\RootDirectory, @rwResult)
+      If rwResult\Action = 2   ; redirect
+        redirHeaders = "Location: " + rwResult\RedirURL + #CRLF$
+        SendNetworkString(connection, BuildResponseHeaders(rwResult\RedirCode, redirHeaders, 0), #PB_Ascii)
+        LogAccess(clientIP, req\Method, req\Path, req\Version, rwResult\RedirCode, 0, referer, userAgent)
+        ProcedureReturn #True
+      ElseIf rwResult\Action = 1   ; rewrite — update path; split off any ?query
+        qPos = FindString(rwResult\NewPath, "?")
+        If qPos > 0
+          req\QueryString = Mid(rwResult\NewPath, qPos + 1)
+          req\Path        = Left(rwResult\NewPath, qPos - 1)
+        Else
+          req\Path = rwResult\NewPath
+        EndIf
+      EndIf
+    EndIf
+
     ; Try embedded assets first (returns #False if no pack or file not in pack)
     If ServeEmbeddedFile(connection, req\Path)
       LogAccess(clientIP, req\Method, req\Path, req\Version, #HTTP_200, 0, referer, userAgent)
@@ -83,7 +106,15 @@ Procedure Main()
     PrintN("                            [--log FILE] [--error-log FILE] [--log-level LEVEL]")
     PrintN("                            [--log-size MB] [--log-keep N] [--no-log-daily]")
     PrintN("                            [--pid-file FILE]")
+    PrintN("                            [--clean-urls] [--rewrite FILE]")
     End 1
+  EndIf
+
+  InitRewriteEngine()
+
+  ; Load global rewrite rules (if configured)
+  If g_Config\RewriteFile <> ""
+    LoadGlobalRules(g_Config\RewriteFile)
   EndIf
 
   ; Apply log settings from config
@@ -147,6 +178,12 @@ Procedure Main()
   If g_Config\PidFile <> "" And FileSize(g_Config\PidFile) >= 0
     PrintN("PID file:   " + g_Config\PidFile + " (PID " + Str(g_ServerPID) + ")")
   EndIf
+  If g_Config\CleanUrls
+    PrintN("Clean URLs: enabled (extensionless paths try .html)")
+  EndIf
+  If g_Config\RewriteFile <> ""
+    PrintN("Rewrite:    " + g_Config\RewriteFile + " (" + Str(GlobalRuleCount()) + " rules)")
+  EndIf
   PrintN("Press Ctrl+C to stop")
   PrintN("")
 
@@ -159,6 +196,7 @@ Procedure Main()
     CloseLogFile()
     CloseErrorLog()
     If g_Config\PidFile <> "" : DeleteFile(g_Config\PidFile) : EndIf
+    CleanupRewriteEngine()
     CloseEmbeddedPack()
     End 1
   EndIf
@@ -168,6 +206,7 @@ Procedure Main()
   CloseLogFile()
   CloseErrorLog()
   If g_Config\PidFile <> "" : DeleteFile(g_Config\PidFile) : EndIf
+  CleanupRewriteEngine()
   CloseEmbeddedPack()
 EndProcedure
 

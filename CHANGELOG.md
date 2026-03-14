@@ -6,6 +6,44 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.5.0 — 2026-03-15 04:30
+
+### Phase G — URL Rewriting and Redirecting
+
+**Added**
+- `src/RewriteEngine.pbi` (new) — URL rewrite and redirect engine:
+  - `InitRewriteEngine()` / `CleanupRewriteEngine()` — lifecycle management
+  - `LoadGlobalRules(path.s)` — load/reload global rules from a `rewrite.conf` file; thread-safe
+  - `GlobalRuleCount()` — return number of loaded global rules
+  - `ApplyRewrites(path, docRoot, *result)` — apply global then per-directory rules; returns `#True` when a rule matched
+  - Rule types: `rewrite` (internal path rewrite) and `redir` (HTTP redirect)
+  - Pattern types: exact (`/path`), glob (`/prefix/*` with `{path}`, `{file}`, `{dir}` placeholders), regex (`~/pattern` with `{re.1}`..`{re.9}` capture groups)
+  - Per-directory rules: `rewrite.conf` in any served directory, auto-reloaded on mtime change, cached (up to 8 directories × 16 rules)
+  - Limits: 64 global rules, 8 cached directories, 16 rules/directory, 9 regex capture groups
+  - Implementation: uses `AllocateMemory` + `PokeI`/`PeekI`/`PokeS`/`PeekS` instead of `Global Dim` (PureUnit compatibility — `SYS_ReAllocateArray` reads element size from the descriptor, which is zero when PureUnit skips `main()`)
+- `src/main.pb`
+  - `--rewrite FILE` CLI flag — path to global `rewrite.conf`
+  - `--clean-urls` CLI flag — extensionless paths try `.html` fallback
+  - Rewrite/redirect applied before file serving; redirect sends `Location:` header directly; rewrite updates `req\Path` (with query-string splitting) before `ServeFile`
+- `docs/URL_REWRITE.md` — reference documentation for the rewrite rule syntax
+
+**Tests**
+- `tests/test_rewrite.pb` (new) — 22 unit tests covering:
+  - Engine init/cleanup lifecycle
+  - Exact, glob, regex rewrites and redirects
+  - `{path}`, `{file}`, `{dir}`, `{re.N}` placeholder expansion
+  - Default 302 redirect code; explicit 301
+  - First-match-wins rule ordering
+  - Comment and blank-line parsing
+  - Invalid verb rejection
+  - LoadGlobalRules file counting
+  - Per-directory rule loading from docroot
+  - Global-rules-first priority over per-directory rules
+  - Double-cleanup safety
+- 108 unit tests across 12 files; all pass
+
+---
+
 ## v1.4.0 — 2026-03-15 06:00
 
 ### Phase F-4 — SIGHUP Log Reopen for logrotate Integration
