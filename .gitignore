@@ -1,0 +1,25 @@
+# PureBasic compiled executables
+PureSimpleHTTPServer
+PureSimpleHTTPServer.exe
+
+# PureUnit prefs and generated reports
+PureUnit.prefs
+docs/test_report.html
+
+# PureBasic temp/backup files
+*.pb~
+*.pbi~
+*.pbp~
+
+# OS junk
+.DS_Store
+Thumbs.db
+._*
+
+# Build artifacts
+assets/
+*.zip
+!tests/fixtures/*.zip
+
+# Log files
+*.log
