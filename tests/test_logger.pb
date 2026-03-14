@@ -331,6 +331,53 @@ ProcedureUnit Logger_Rotation_DisabledWhenMaxBytesZero()
   Assert(archives = 0, "No archives should be created when rotation is disabled (g_LogMaxBytes=0)")
 EndProcedureUnit
 
+; --- SIGHUP log reopen (F-4) ---
+
+ProcedureUnit Logger_ReopenLogs_FlagClearedAfterWrite()
+  ; Set g_ReopenLogs = 1 and verify LogAccess clears it inside the mutex
+  OpenLogFile(g_TmpLog)
+  g_ReopenLogs = 1
+  LogAccess("1.1.1.1", "GET", "/reopen", "HTTP/1.1", 200, 100, "", "")
+  Protected flagAfter.i = g_ReopenLogs
+  CloseLogFile()
+  Assert(flagAfter = 0, "g_ReopenLogs should be cleared to 0 after LogAccess processes it")
+EndProcedureUnit
+
+ProcedureUnit Logger_ReopenLogs_NewFileReceivesEntry()
+  ; Simulate logrotate: write entry A, rename log, set flag, write entry B
+  ; Entry B should appear in the freshly created file at the original path
+  Protected tmpLog.s  = GetTemporaryDirectory() + "pshs_reopen_t2.log"
+  Protected oldLog.s  = GetTemporaryDirectory() + "pshs_reopen_t2.log.old"
+  DeleteFile(tmpLog)
+  DeleteFile(oldLog)
+
+  OpenLogFile(tmpLog)
+  LogAccess("1.1.1.1", "GET", "/before", "HTTP/1.1", 200, 10, "", "")
+  FlushFileBuffers(g_LogFile)  ; ensure entry A is on disk
+
+  ; Simulate logrotate renaming the log — server's file handle still points to old inode
+  RenameFile(tmpLog, oldLog)
+
+  ; Signal reopen: next write will close old handle, open new file at tmpLog
+  g_ReopenLogs = 1
+  LogAccess("2.2.2.2", "GET", "/after", "HTTP/1.1", 200, 20, "", "")
+  CloseLogFile()
+
+  ; New file should contain entry B ("/after"), not entry A ("/before")
+  Protected newContent.s = "", f.i = ReadFile(#PB_Any, tmpLog)
+  If f > 0 : newContent = ReadString(f) : CloseFile(f) : EndIf
+
+  ; Old file should contain entry A ("/before")
+  Protected oldContent.s = "", g.i = ReadFile(#PB_Any, oldLog)
+  If g > 0 : oldContent = ReadString(g) : CloseFile(g) : EndIf
+
+  DeleteFile(tmpLog)
+  DeleteFile(oldLog)
+
+  Assert(FindString(newContent, "/after")  > 0, "New log file should receive entry written after reopen")
+  Assert(FindString(oldContent, "/before") > 0, "Renamed old file should retain entry written before reopen")
+EndProcedureUnit
+
 ; --- Daily rotation thread (F-3) ---
 
 ProcedureUnit Logger_StartDailyRotation_ThreadStarted()

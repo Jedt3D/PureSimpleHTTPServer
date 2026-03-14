@@ -6,6 +6,36 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.4.0 — 2026-03-15 06:00
+
+### Phase F-4 — SIGHUP Log Reopen for logrotate Integration
+
+**Added**
+- `src/SignalHandler.pbi` (new) — POSIX signal handler for SIGHUP:
+  - `#SIGHUP = 1`, `#SIG_DFL = 0`
+  - `ImportC "" signal.i(signum.i, *handler) EndImport`
+  - `SIGHUPHandler(signum.i)` — async-signal-safe handler: sets `g_ReopenLogs = 1` only
+  - `InstallSignalHandlers()` — installs `SIGHUPHandler` via `signal(#SIGHUP, @SIGHUPHandler())`
+  - `RemoveSignalHandlers()` — restores `#SIG_DFL` at shutdown
+  - Windows stubs (no-ops): `CompilerElse` block ensures the binary compiles on Windows; Windows users rely on F-2/F-3 built-in rotation
+  - Includes logrotate config snippet in header comments
+- `src/Logger.pbi`
+  - `Global g_ReopenLogs.i = 0` — set by SIGHUP handler; cleared by `ReopenLogs()`
+  - `ReopenLogs()` — flushes and closes both open log files, then calls `OpenOrAppend()` at their current paths; called inside `g_LogMutex` when `g_ReopenLogs = 1`
+  - `LogAccess()` and `LogError()`: check `g_ReopenLogs` first inside mutex (highest priority, before size-rotation check); also added `g_LogFile > 0` guard before size-rotation `Lof()` call
+
+**Changed**
+- `src/main.pb` — `XIncludeFile "SignalHandler.pbi"`; `InstallSignalHandlers()` called after log files are open; `RemoveSignalHandlers()` called at shutdown before `StopDailyRotation()`
+- `tests/TestCommon.pbi` — `XIncludeFile "../src/SignalHandler.pbi"` added
+
+**Tests**
+- `tests/test_logger.pb` — 21 → 23 tests; 2 new F-4 tests:
+  - `Logger_ReopenLogs_FlagClearedAfterWrite` — set `g_ReopenLogs = 1`, call `LogAccess`, verify flag cleared to 0
+  - `Logger_ReopenLogs_NewFileReceivesEntry` — rename active log (simulating logrotate), set flag, write entry, verify entry goes to new file at original path; old renamed file retains prior entry
+- 86 unit tests across 11 files; all pass
+
+---
+
 ## v1.3.0 — 2026-03-15 05:00
 
 ### Phase F-3 — Daily Midnight UTC Rotation + PID File

@@ -48,6 +48,7 @@ Global g_LogKeepCount.i  = 30  ; max rotated archive files to keep per log
 Global g_RotationSeq.i   = 0   ; per-process sequence counter for archive uniqueness
 Global g_RotationThread.i = 0  ; daily rotation thread ID (0 = not running)
 Global g_StopRotation.i   = 0  ; set to 1 to signal thread to exit
+Global g_ReopenLogs.i     = 0  ; set to 1 by SIGHUP handler (SignalHandler.pbi)
 
 ; --- Internal helpers ---
 
@@ -175,6 +176,23 @@ Procedure RotateLog(*fh, logPath.s)
   PruneArchives(logPath)
 EndProcedure
 
+; ReopenLogs() — close and reopen both log files at their current paths (F-4)
+; Called inside g_LogMutex when g_ReopenLogs is set by SIGHUP handler.
+; Allows logrotate to rename the old log file while the server keeps running.
+Procedure ReopenLogs()
+  If g_LogFile > 0
+    FlushFileBuffers(g_LogFile)
+    CloseFile(g_LogFile)
+    g_LogFile = OpenOrAppend(g_LogPath)
+  EndIf
+  If g_ErrorLogFile > 0
+    FlushFileBuffers(g_ErrorLogFile)
+    CloseFile(g_ErrorLogFile)
+    g_ErrorLogFile = OpenOrAppend(g_ErrorLogPath)
+  EndIf
+  g_ReopenLogs = 0
+EndProcedure
+
 ; LogRotationThread(*unused) — background thread: sleep to next UTC midnight, then rotate
 ; Outer loop: compute seconds-to-midnight, sleep 1s at a time checking g_StopRotation,
 ; then acquire g_LogMutex and rotate both open log files.
@@ -291,7 +309,8 @@ Procedure LogAccess(ip.s, method.s, path.s, protocol.s, status.i, bytes.i, refer
                      " " + Chr(34) + ua  + Chr(34)
 
   LockMutex(g_LogMutex)
-  If g_LogMaxBytes > 0
+  If g_ReopenLogs : ReopenLogs() : EndIf
+  If g_LogMaxBytes > 0 And g_LogFile > 0
     FlushFileBuffers(g_LogFile)
     If Lof(g_LogFile) >= g_LogMaxBytes
       RotateLog(@g_LogFile, g_LogPath)
@@ -349,7 +368,8 @@ Procedure LogError(level.s, message.s)
                      Str(g_ServerPID) + "] " + message
 
   LockMutex(g_LogMutex)
-  If g_LogMaxBytes > 0
+  If g_ReopenLogs : ReopenLogs() : EndIf
+  If g_LogMaxBytes > 0 And g_ErrorLogFile > 0
     FlushFileBuffers(g_ErrorLogFile)
     If Lof(g_ErrorLogFile) >= g_LogMaxBytes
       RotateLog(@g_ErrorLogFile, g_ErrorLogPath)

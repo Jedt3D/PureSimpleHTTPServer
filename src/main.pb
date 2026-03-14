@@ -34,6 +34,7 @@ XIncludeFile "DirectoryListing.pbi"
 XIncludeFile "RangeParser.pbi"
 XIncludeFile "EmbeddedAssets.pbi"
 XIncludeFile "Config.pbi"
+XIncludeFile "SignalHandler.pbi"
 
 ; g_Config — server configuration (global so HandleRequest can access it)
 Global g_Config.ServerConfig
@@ -128,6 +129,9 @@ Procedure Main()
     StartDailyRotation()
   EndIf
 
+  ; Install SIGHUP handler for logrotate integration (macOS/Linux; no-op on Windows)
+  InstallSignalHandlers()
+
   PrintN(#APP_NAME + " v" + #APP_VERSION)
   If g_EmbeddedPack > 0
     PrintN("Mode:       embedded assets (in-memory)")
@@ -150,6 +154,7 @@ Procedure Main()
 
   If Not StartServer(g_Config\Port)
     PrintN("ERROR: Failed to start server on port " + Str(g_Config\Port))
+    RemoveSignalHandlers()
     StopDailyRotation()
     CloseLogFile()
     CloseErrorLog()
@@ -158,6 +163,7 @@ Procedure Main()
     End 1
   EndIf
 
+  RemoveSignalHandlers()
   StopDailyRotation()
   CloseLogFile()
   CloseErrorLog()
