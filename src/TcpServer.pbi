@@ -2,8 +2,13 @@
 ; Include with: XIncludeFile "TcpServer.pbi"
 ; Provides: StartServer(), StopServer(), g_Handler
 ;
-; Phase A: single-threaded, one request per connection (Connection: close model)
-; Phase E: will replace with thread-per-connection model
+; Phase E: thread-per-connection model
+;   Data accumulation runs in the main event loop (single-threaded, safe).
+;   Each complete HTTP request is handed off to a new thread via ConnectionThread,
+;   allowing the event loop to continue accepting connections while requests are
+;   being handled. Requires the -t (thread-safe) compiler flag.
+;   Shared read-only state (g_Handler, g_Config, g_EmbeddedPack) needs no mutex.
+;   Logger uses its own mutex for safe concurrent log writes.
 ;
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
 
@@ -18,15 +23,30 @@ Global g_Handler.ConnectionHandlerProto
 ; g_Running — internal flag; set to #False by StopServer() to break event loop
 Global g_Running.i
 
+; Per-connection data passed to the handler thread
+Structure ThreadData
+  client.i
+  raw.s
+EndStructure
+
+; ConnectionThread — handler thread: calls g_Handler then closes the connection
+Procedure ConnectionThread(*data.ThreadData)
+  Protected client.i = *data\client
+  Protected raw.s    = *data\raw
+  FreeStructure(*data)
+  g_Handler(client, raw)
+  CloseNetworkConnection(client)
+EndProcedure
+
 ; StartServer(port.i) — create a TCP server and enter a blocking event loop
 ;
-; Dispatches each complete HTTP request to g_Handler.
+; Dispatches each complete HTTP request to g_Handler in a new thread.
 ; Returns #True on clean shutdown (StopServer() called), #False on startup failure.
 ;
 ; NOTE: g_Handler must be assigned before calling StartServer().
 Procedure.i StartServer(port.i)
   Protected event.i, client.i, clientKey.s, received.i
-  Protected *recvBuf
+  Protected *recvBuf, *td.ThreadData
   NewMap accum.s()
 
   If g_Handler = 0
@@ -34,7 +54,6 @@ Procedure.i StartServer(port.i)
     ProcedureReturn #False
   EndIf
 
-  ; Note: PureBasic Network library requires no initialization call
   Protected serverID.i = CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)
   If serverID = 0
     Debug "StartServer: CreateNetworkServer() failed on port " + Str(port)
@@ -65,11 +84,18 @@ Procedure.i StartServer(port.i)
         received  = ReceiveNetworkData(client, *recvBuf, #RECV_BUFFER_SIZE)
         If received > 0
           accum(clientKey) = accum(clientKey) + PeekS(*recvBuf, received, #PB_Ascii)
-          ; Dispatch when complete header block received
+          ; Dispatch to a handler thread when the complete request header block arrives
           If FindString(accum(clientKey), #CRLF$ + #CRLF$) > 0
-            g_Handler(client, accum(clientKey))
-            CloseNetworkConnection(client)
+            *td = AllocateStructure(ThreadData)
+            *td\client = client
+            *td\raw    = accum(clientKey)
             DeleteMapElement(accum(), clientKey)
+            If CreateThread(@ConnectionThread(), *td) = 0
+              ; Thread creation failed — handle synchronously as fallback
+              g_Handler(*td\client, *td\raw)
+              CloseNetworkConnection(*td\client)
+              FreeStructure(*td)
+            EndIf
           EndIf
         EndIf
 

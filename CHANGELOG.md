@@ -6,6 +6,38 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.0.0 — 2026-03-14 23:59
+
+### Phase E — Thread-per-Connection, Logger, Full CLI Parsing
+
+**Added**
+- `src/Logger.pbi` — `OpenLogFile()`, `LogAccess()`, `CloseLogFile()`
+  - Mutex-protected writes for concurrent access from handler threads
+  - Format: `[YYYY-MM-DD HH:MM:SS] IP METHOD /path STATUS BYTES`
+  - `OpenLogFile()`: creates log file if absent, appends if existing; returns `#False` for invalid paths
+  - `LogAccess()`: no-op if no log file is open (safe to call unconditionally)
+  - `CloseLogFile()`: flushes buffers before closing; harmless if file not open
+- `tests/test_logger.pb` — 7 unit tests: open/close lifecycle, no-op when closed, field presence, timestamp format, multi-line append
+
+**Changed**
+- `src/TcpServer.pbi` — thread-per-connection model
+  - Data accumulation remains in the main event loop (single-threaded, no map mutex needed)
+  - Complete requests are handed off to `ConnectionThread` via `AllocateStructure(ThreadData)`
+  - Synchronous fallback if `CreateThread()` fails
+  - Requires `-t` compiler flag for thread-safe memory allocation
+- `src/Config.pbi` — full CLI argument parsing
+  - `ParseCLI()` supports: `--port N`, `--root DIR`, `--browse`, `--spa`, `--log FILE`
+  - Legacy bare port number (`8080`) still supported for backward compatibility
+  - Returns `#False` for unrecognized or malformed arguments
+- `src/main.pb` — integrates Logger; updated `HandleRequest()` calls `LogAccess()` after each response; updated `Main()` opens/closes log file from `g_Config\LogFile`; updated compile comment to include `-t` flag; updated usage string
+- `src/Global.pbi` — version bumped to 1.0.0
+- `tests/test_config.pb` — replaced placeholder with 9 unit tests: all `LoadDefaults()` fields, ParseCLI crash-safety tests (noted: PureUnit injects runtime args, so return value not asserted)
+
+**Pitfalls documented** (common-pitfalls.md #20)
+- `ProgramParameter()` returns PureUnit's own runtime arguments inside test binaries; do not Assert on `ParseCLI()` return value in PureUnit tests
+
+---
+
 ## v0.4.0 — 2026-03-14 23:00
 
 ### Phase D — Embedded Assets via CatchPack/UncompressPackMemory

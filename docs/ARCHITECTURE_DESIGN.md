@@ -47,7 +47,7 @@ Logger.pbi ── Global.pbi
 
 All `XIncludeFile` paths are relative to the file containing the directive, so any module can be included from any location (including `tests/`) and its dependencies resolve correctly.
 
-## HTTP Request Lifecycle (Phase D — current)
+## HTTP Request Lifecycle (Phase E — current)
 
 ```
 Browser/client
@@ -88,7 +88,9 @@ CloseNetworkConnection()
 ## HTTP Request Lifecycle (Phase B onwards)
 
 ```
-HandleRequest()
+HandleRequest()  (runs in ConnectionThread — Phase E)
+  │
+  │  NetworkClientIP(connection)  → clientIP for LogAccess
   │
   ├── Path starts with hidden pattern? → 403
   ├── ServeEmbeddedFile()              → 200 from in-memory pack (Phase D)
@@ -97,6 +99,30 @@ HandleRequest()
   │     ├── BuildDirectoryListing()     → 200 HTML listing if browse=on (Phase C)
   │     └── SPA fallback               → serve index.html if spa=on (Phase C)
   └── 404 Not Found
+       │
+       ▼
+  LogAccess(method, path, status, 0, clientIP)  →  Logger.pbi (mutex-protected)
+```
+
+## Concurrency Model (Phase E)
+
+```
+Main event loop  (single-threaded)
+  │  Accumulates raw HTTP bytes per client in NewMap accum.s()
+  │  On complete request (\r\n\r\n found):
+  │    AllocateStructure(ThreadData) → client + raw string
+  │    CreateThread(@ConnectionThread(), *td)
+  │    DeleteMapElement(accum(), clientKey)
+  │
+  ├── ConnectionThread A  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
+  ├── ConnectionThread B  →  HandleRequest() → LogAccess() → CloseNetworkConnection()
+  └── ...
+
+Shared state safety:
+  - g_Handler, g_Config, g_EmbeddedPack: read-only after startup — no mutex needed
+  - g_LogFile / WriteStringN(): protected by g_LogMutex
+  - NewMap accum: only accessed from main event loop — no mutex needed
+  - File I/O (ReadData, ExamineDirectory): thread-safe under -t flag
 ```
 
 ## Concurrency Model
@@ -128,3 +154,5 @@ Runtime:
 5. **Content-Length via `StringByteLength(s, #PB_UTF8)`** — not `Len()`, which counts characters not bytes.
 6. **Binary file serving via `ReadData()`/`SendNetworkData()`** — text responses use `SendNetworkString(#PB_UTF8)`; binary file bodies use `SendNetworkData()` to avoid encoding.
 7. **`Declare` for cross-module forward references** — FileServer.pbi calls `BuildDirectoryListing`, `ParseRangeHeader`, `SendPartialResponse` which are defined in later-included files. `Declare` statements at the top of FileServer.pbi tell the compiler the signatures; the linker resolves them from the same compilation unit.
+8. **Thread-per-connection data hand-off via `AllocateStructure`** — The main event loop captures the client ID and accumulated raw string into a `ThreadData` structure, spawns the thread, then deletes the map entry. The thread owns the structure and frees it via `FreeStructure` before processing, preventing any use-after-free and keeping the accum map main-thread-only.
+9. **Logger mutex pattern** — `g_LogMutex` is created once in `OpenLogFile()` and never freed; multiple `OpenLogFile()` calls check `g_LogMutex = 0` before creating. `LogAccess()` guards `WriteStringN()` with `LockMutex`/`UnlockMutex` to prevent interleaved log lines from concurrent handler threads.

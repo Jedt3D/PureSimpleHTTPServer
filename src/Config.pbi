@@ -3,7 +3,8 @@
 ; Provides: LoadDefaults(), ParseCLI()
 ;
 ; Phase E: full CLI argument parsing
-; Phase A: LoadDefaults() only
+; Flags: --port N   --root DIR   --browse   --spa   --log FILE
+; Also accepts a bare port number for backward compatibility (e.g. "8080")
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi
 
 ; LoadDefaults(*cfg.ServerConfig) — populate config with default values
@@ -19,17 +20,52 @@ Procedure LoadDefaults(*cfg.ServerConfig)
 EndProcedure
 
 ; ParseCLI(*cfg.ServerConfig) — override config from command-line arguments
-; Phase E: implement --port, --root, --browse, --spa, --log, etc.
-; Returns #True on success, #False if arguments are invalid
+; Supports: --port N   --root DIR   --browse   --spa   --log FILE
+;           bare port number (e.g. "8080") for legacy compatibility
+; Returns #True on success, #False if an argument is invalid or unrecognized.
 Procedure.i ParseCLI(*cfg.ServerConfig)
-  ; Phase A: minimal — just read port if provided as first arg
-  If CountProgramParameters() >= 1
-    Protected p.i = Val(ProgramParameter(0))
-    If p > 0 And p <= 65535
-      *cfg\Port = p
+  Protected i.i, count.i, param.s, portVal.i
+  count = CountProgramParameters()
+  i = 0
+  While i < count
+    param = ProgramParameter(i)
+
+    If param = "--port"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      portVal = Val(ProgramParameter(i))
+      If portVal < 1 Or portVal > 65535 : ProcedureReturn #False : EndIf
+      *cfg\Port = portVal
+
+    ElseIf param = "--root"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\RootDirectory = ProgramParameter(i)
+
+    ElseIf param = "--browse"
+      *cfg\BrowseEnabled = #True
+
+    ElseIf param = "--spa"
+      *cfg\SpaFallback = #True
+
+    ElseIf param = "--log"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\LogFile = ProgramParameter(i)
+
+    ElseIf Val(param) > 0
+      ; Legacy: bare port number (e.g. "8080")
+      portVal = Val(param)
+      If portVal < 1 Or portVal > 65535 : ProcedureReturn #False : EndIf
+      *cfg\Port = portVal
+
     Else
-      ProcedureReturn #False
+      ProcedureReturn #False  ; Unrecognized argument
+
     EndIf
-  EndIf
+
+    i + 1
+  Wend
+
   ProcedureReturn #True
 EndProcedure
