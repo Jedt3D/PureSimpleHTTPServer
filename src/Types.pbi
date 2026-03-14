@@ -25,6 +25,13 @@ Structure HttpResponse
   BodyBufferSize.i   ; Size of BodyBuffer in bytes
 EndStructure
 
+; Byte range for HTTP Range requests (used by RangeParser.pbi)
+Structure RangeSpec
+  Start.i    ; First byte to serve (inclusive)
+  End.i      ; Last byte to serve (inclusive)
+  IsValid.i  ; #True if range is satisfiable
+EndStructure
+
 ; Server runtime configuration
 Structure ServerConfig
   Port.i             ; Listening port (default: #DEFAULT_PORT)

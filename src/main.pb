@@ -1,5 +1,5 @@
 ; main.pb — PureSimpleHTTPServer entry point
-; Phase B: static file serving from disk
+; Phase C: directory listing, SPA fallback, Range requests, hidden paths, .gz sidecars
 ;
 ; Compile as console app:
 ;   pbcompiler -cl -o PureSimpleHTTPServer src/main.pb
@@ -17,6 +17,8 @@ XIncludeFile "HttpResponse.pbi"
 XIncludeFile "TcpServer.pbi"
 XIncludeFile "MimeTypes.pbi"
 XIncludeFile "FileServer.pbi"
+XIncludeFile "DirectoryListing.pbi"
+XIncludeFile "RangeParser.pbi"
 XIncludeFile "Config.pbi"
 
 ; g_Config — server configuration (global so HandleRequest can access it)
@@ -32,7 +34,7 @@ Procedure.i HandleRequest(connection.i, raw.s)
   EndIf
 
   If req\Method = "GET"
-    ProcedureReturn ServeFile(connection, g_Config\RootDirectory, req\Path, g_Config\IndexFiles)
+    ProcedureReturn ServeFile(connection, @g_Config, @req)
   EndIf
 
   SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")

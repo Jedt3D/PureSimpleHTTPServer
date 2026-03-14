@@ -47,7 +47,7 @@ Logger.pbi ── Global.pbi
 
 All `XIncludeFile` paths are relative to the file containing the directive, so any module can be included from any location (including `tests/`) and its dependencies resolve correctly.
 
-## HTTP Request Lifecycle (Phase B — current)
+## HTTP Request Lifecycle (Phase C — current)
 
 ```
 Browser/client
@@ -63,15 +63,23 @@ Raw HTTP string  →  ParseHttpRequest()  →  HttpRequest struct
 HandleRequest()  (main.pb)
   │  req\Method = "GET"
   ▼
-ServeFile(connection, docRoot, urlPath, indexList)
+ServeFile(connection, *cfg, *req)
   │  (FileServer.pbi)
-  ├── FileSize() = -2 (directory) → ResolveIndexFile() → 403 if no index
-  ├── FileSize() < 0 (missing)    → 404
-  ├── AllocateMemory + ReadData   → 500 on I/O error
-  └── BuildResponseHeaders() + SendNetworkData()  → 200
+  ├── IsHiddenPath(urlPath, cfg\HiddenPatterns)  → 403
+  ├── FileSize() = -2 (directory)
+  │     ├── ResolveIndexFile()           → serve index file
+  │     ├── cfg\BrowseEnabled            → BuildDirectoryListing() → 200 HTML
+  │     └── otherwise                   → 403
+  ├── FileSize() < 0 (missing)
+  │     ├── cfg\SpaFallback              → serve root index.html
+  │     └── otherwise                   → 404
+  ├── .gz sidecar + Accept-Encoding:gzip → 200 with Content-Encoding: gzip
+  ├── If-None-Match matches ETag         → 304 Not Modified
+  ├── Range header present               → ParseRangeHeader() → SendPartialResponse() → 206
+  └── AllocateMemory + ReadData          → 200 (or 500 on I/O error)
         Content-Type via GetMimeType(LCase(GetExtensionPart()))
-        ETag via BuildETag() = hex(size)-hex(mtime)
-        Last-Modified via HTTPDate(GetFileDate())
+        ETag: hex(size)-hex(mtime)
+        Last-Modified: HTTPDate(GetFileDate())
   │
   ▼
 CloseNetworkConnection()
@@ -119,3 +127,4 @@ Runtime:
 4. **`Date.q` for timestamps** — PureBasic `Date()` and `GetFileDate()` return `.q` (Quad, 8-byte), not `.i`.
 5. **Content-Length via `StringByteLength(s, #PB_UTF8)`** — not `Len()`, which counts characters not bytes.
 6. **Binary file serving via `ReadData()`/`SendNetworkData()`** — text responses use `SendNetworkString(#PB_UTF8)`; binary file bodies use `SendNetworkData()` to avoid encoding.
+7. **`Declare` for cross-module forward references** — FileServer.pbi calls `BuildDirectoryListing`, `ParseRangeHeader`, `SendPartialResponse` which are defined in later-included files. `Declare` statements at the top of FileServer.pbi tell the compiler the signatures; the linker resolves them from the same compilation unit.

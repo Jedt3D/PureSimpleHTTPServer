@@ -6,6 +6,34 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v0.3.0 — 2026-03-14 22:00
+
+### Phase C — Range Requests, Directory Listing, SPA Fallback, Hidden Paths, .gz Sidecars
+
+**Added**
+- `src/DirectoryListing.pbi` — `BuildDirectoryListing()`: sorted HTML table (dirs first), URLEncoder hrefs, parent ".." link, file size and Last-Modified columns
+- `src/RangeParser.pbi` — `ParseRangeHeader()`: full/open-ended/suffix range parsing; `SendPartialResponse()`: 206 Partial Content with Content-Range
+- `src/FileServer.pbi` — `IsHiddenPath()`: blocks hidden path segments (e.g. `.git`, `.env`)
+- `src/Types.pbi` — `Structure RangeSpec` moved here so FileServer and RangeParser can share it
+
+**Changed**
+- `src/FileServer.pbi` — `ServeFile(connection, *cfg, *req)` signature (reads all config + headers internally):
+  - Checks `cfg\HiddenPatterns` (403 if matched)
+  - Directory browsing via `BuildDirectoryListing` when `cfg\BrowseEnabled`
+  - SPA fallback: serves root index for 404s when `cfg\SpaFallback`
+  - Pre-compressed `.gz` sidecar: served with `Content-Encoding: gzip` when client accepts gzip
+  - `If-None-Match` / ETag → 304 Not Modified
+  - `Range` header → 206 Partial Content via `SendPartialResponse()`
+  - Forward `Declare` statements for `BuildDirectoryListing`, `ParseRangeHeader`, `SendPartialResponse` (defined in later-included files)
+- `src/main.pb` — updated to include DirectoryListing and RangeParser; passes `@g_Config, @req` to ServeFile
+- `src/Global.pbi` — version bumped to 0.3.0
+
+**Tests**
+- `tests/test_range_parser.pb` — 9 unit tests: full/open/suffix/clamped ranges, start-beyond-EOF, invalid formats
+- `tests/test_directory_listing.pb` — 9 unit tests: HTML structure, filenames, subdir links, parent link (root vs non-root), `IsHiddenPath()` (3 cases)
+
+---
+
 ## v0.2.0 — 2026-03-14 21:00
 
 ### Phase B — Static File Serving
