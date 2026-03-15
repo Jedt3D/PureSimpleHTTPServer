@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "name": "PureSimpleHTTPServer Lite",
+    "price": 0.00,
+    "category": "software",
+    "in_stock": true,
+    "description": "The free, open-source build. Full static file serving, clean URLs, and directory listings."
+  },
+  {
+    "id": 2,
+    "name": "PureSimpleHTTPServer Pro",
+    "price": 29.00,
+    "category": "software",
+    "in_stock": true,
+    "description": "Adds pre-built binaries for all platforms, priority issue tracker access, and the source SDK."
+  },
+  {
+    "id": 3,
+    "name": "Developer T-Shirt (S)",
+    "price": 18.50,
+    "category": "apparel",
+    "in_stock": true,
+    "description": "100% cotton shirt printed with the PureSimpleHTTPServer logo. Small size."
+  },
+  {
+    "id": 4,
+    "name": "Developer T-Shirt (M)",
+    "price": 18.50,
+    "category": "apparel",
+    "in_stock": true,
+    "description": "100% cotton shirt printed with the PureSimpleHTTPServer logo. Medium size."
+  },
+  {
+    "id": 5,
+    "name": "Developer T-Shirt (L)",
+    "price": 18.50,
+    "category": "apparel",
+    "in_stock": false,
+    "description": "100% cotton shirt printed with the PureSimpleHTTPServer logo. Large size — currently out of stock."
+  },
+  {
+    "id": 6,
+    "name": "Enamel Pin Badge",
+    "price": 6.00,
+    "category": "accessories",
+    "in_stock": true,
+    "description": "Hard enamel pin featuring the PureSimpleHTTPServer gopher mascot. 25 mm diameter."
+  }
+]

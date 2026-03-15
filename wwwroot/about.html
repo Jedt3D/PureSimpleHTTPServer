@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>About — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <h1>About PureSimpleHTTPServer</h1>
+    <p>
+      <strong>PureSimpleHTTPServer</strong> is a lightweight, zero-dependency static file server
+      written entirely in <a href="https://www.purebasic.com/" target="_blank" rel="noopener">PureBasic</a>.
+      It was designed to be the simplest possible tool for serving local files during development,
+      running demo sites, or deploying small production workloads — with no runtime, no
+      configuration sprawl, and a single binary you can drop anywhere.
+    </p>
+    <p>
+      Unlike Node.js or Python-based alternatives, PureSimpleHTTPServer compiles to a native
+      executable for Windows, macOS, and Linux. The binary is self-contained: there is nothing
+      to install, no package manager to run, and no background service to manage.
+    </p>
+
+    <h2>Key Features</h2>
+    <ul class="feature-list">
+      <li>Single native binary — drop it next to your <code>wwwroot/</code> and run</li>
+      <li>URL rewriting and redirects via plain-text <code>rewrite.conf</code> files</li>
+      <li>Per-directory rewrite rules (place a <code>rewrite.conf</code> in any folder)</li>
+      <li>Automatic MIME type detection for 30+ file types</li>
+      <li>Pre-compressed <code>.gz</code> sidecar support (serve Brotli/Gzip without re-compressing)</li>
+      <li>Clean URLs — serve <code>about.html</code> at <code>/about</code></li>
+      <li>SPA mode — fall through to <code>index.html</code> for client-side routing</li>
+      <li>Directory listings (opt-in)</li>
+      <li>Structured access logs (Apache Common Log Format)</li>
+      <li>Zero dependencies, cross-platform</li>
+    </ul>
+
+    <h2>Performance</h2>
+    <div class="card-grid">
+      <div class="card">
+        <h3>30,000 req/s</h3>
+        <p>Peak throughput on a modern laptop, serving small static files over localhost.</p>
+      </div>
+      <div class="card">
+        <h3>&lt; 3 ms latency</h3>
+        <p>Median response time under load, measured with <code>wrk</code> on macOS Sequoia.</p>
+      </div>
+      <div class="card">
+        <h3>~1 MB binary</h3>
+        <p>Compiled executable size. No runtime or framework to ship alongside it.</p>
+      </div>
+    </div>
+
+    <h2>Built with PureBasic</h2>
+    <p>
+      PureBasic is a compiled, procedural language that produces small, fast native binaries.
+      Its built-in network library gives direct access to socket I/O without any third-party
+      runtime, making it an ideal choice for a lightweight server like this one.
+    </p>
+    <p>
+      The entire server — HTTP parsing, MIME detection, rewrite engine, and logging —
+      fits comfortably in a few thousand lines of clean, readable PureBasic code.
+    </p>
+
+    <h2>Getting Started</h2>
+    <p>
+      Download the binary for your platform, place it alongside your website files, and run:
+    </p>
+    <pre><code># Serve the current directory on port 8080
+PureSimpleHTTPServer --port 8080 --root ./wwwroot</code></pre>
+    <p>
+      Then open <a href="http://localhost:8080">http://localhost:8080</a> in your browser.
+      That's it.
+    </p>
+    <p>
+      For more details, see the <a href="/docs/">Documentation</a> or read the
+      <a href="/blog/getting-started-with-url-rewriting">URL Rewriting guide</a>.
+    </p>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

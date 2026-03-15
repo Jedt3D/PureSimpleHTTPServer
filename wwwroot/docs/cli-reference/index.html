@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI Reference — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/" class="active">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/docs/">Docs</a></span>
+      <span>CLI Reference</span>
+    </div>
+    <h1>CLI Reference</h1>
+    <p>All command-line flags for PureSimpleHTTPServer v1.5.0. Flags may appear in any order and can be freely combined.</p>
+
+    <pre><code>./PureSimpleHTTPServer [flags...]</code></pre>
+
+    <h2>All flags</h2>
+    <table>
+      <thead>
+        <tr><th>Flag</th><th>Type</th><th>Default</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>--port N</code></td><td>Integer</td><td><code>8080</code></td><td>TCP port to listen on</td></tr>
+        <tr><td><code>--root DIR</code></td><td>Path</td><td><code>wwwroot/</code></td><td>Document root directory</td></tr>
+        <tr><td><code>--browse</code></td><td>Flag</td><td>off</td><td>Enable directory listing when no index file</td></tr>
+        <tr><td><code>--spa</code></td><td>Flag</td><td>off</td><td>Serve root <code>index.html</code> for all 404s</td></tr>
+        <tr><td><code>--log FILE</code></td><td>Path</td><td><em>disabled</em></td><td>Access log path (Apache Combined Log Format)</td></tr>
+        <tr><td><code>--error-log FILE</code></td><td>Path</td><td><em>disabled</em></td><td>Error log path</td></tr>
+        <tr><td><code>--log-level LEVEL</code></td><td>Enum</td><td><code>warn</code></td><td>Error log verbosity: <code>none</code> / <code>error</code> / <code>warn</code> / <code>info</code></td></tr>
+        <tr><td><code>--log-size MB</code></td><td>Integer</td><td><code>100</code></td><td>Rotate logs when they reach this size in MB (<code>0</code> = disabled)</td></tr>
+        <tr><td><code>--log-keep N</code></td><td>Integer</td><td><code>30</code></td><td>Max archived log files to keep</td></tr>
+        <tr><td><code>--no-log-daily</code></td><td>Flag</td><td>off</td><td>Disable automatic midnight log rotation</td></tr>
+        <tr><td><code>--pid-file FILE</code></td><td>Path</td><td><em>disabled</em></td><td>Write PID to file at startup; deleted on clean exit</td></tr>
+        <tr><td><code>--clean-urls</code></td><td>Flag</td><td>off</td><td>Serve <code>/page.html</code> when <code>/page</code> is requested</td></tr>
+        <tr><td><code>--rewrite FILE</code></td><td>Path</td><td><em>disabled</em></td><td>Load URL rewrite/redirect rules from file</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Examples</h2>
+
+    <h3>Minimal — serve current directory on port 3000</h3>
+    <pre><code>./PureSimpleHTTPServer --root . --port 3000</code></pre>
+
+    <h3>SPA (React / Vue / Angular)</h3>
+    <pre><code>./PureSimpleHTTPServer --root ./dist --spa --port 3000</code></pre>
+
+    <h3>Static site with clean URLs and access logging</h3>
+    <pre><code>./PureSimpleHTTPServer \
+  --root ./public \
+  --clean-urls \
+  --log /var/log/pshs/access.log \
+  --error-log /var/log/pshs/error.log</code></pre>
+
+    <h3>Production with log rotation and PID file</h3>
+    <pre><code>./PureSimpleHTTPServer \
+  --root /srv/www \
+  --port 8080 \
+  --log /var/log/pshs/access.log \
+  --error-log /var/log/pshs/error.log \
+  --log-level warn \
+  --log-size 100 \
+  --log-keep 30 \
+  --pid-file /run/pshs.pid \
+  --rewrite /etc/pshs/rewrite.conf</code></pre>
+
+    <h2>Legacy positional argument</h2>
+    <p>A bare port number without a flag name is accepted for backwards compatibility:</p>
+    <pre><code>./PureSimpleHTTPServer 9000   # same as --port 9000</code></pre>
+    <p>Prefer <code>--port</code> in scripts and service files.</p>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

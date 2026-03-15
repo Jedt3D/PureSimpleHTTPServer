@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blog — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <h1>Blog</h1>
+    <p>Tips, tutorials, and updates from the PureSimpleHTTPServer project.</p>
+
+    <div class="card">
+      <div class="meta">2026-03-15</div>
+      <h3><a href="/blog/hello-world">Hello World</a></h3>
+      <p>
+        Welcome to PureSimpleHTTPServer! In this first post we walk through downloading
+        the binary, dropping it next to your files, and serving your first static site
+        in under two minutes.
+      </p>
+      <a href="/blog/hello-world">Read more &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="meta">2026-03-10</div>
+      <h3><a href="/blog/getting-started-with-url-rewriting">Getting Started with URL Rewriting</a></h3>
+      <p>
+        Clean URLs and transparent redirects make every site feel more polished.
+        This guide explains the difference between <code>rewrite</code> and <code>redir</code>,
+        and shows three real-world examples using <code>rewrite.conf</code>.
+      </p>
+      <a href="/blog/getting-started-with-url-rewriting">Read more &rarr;</a>
+    </div>
+
+    <div class="card">
+      <div class="meta">2026-03-05</div>
+      <h3><a href="/blog/advanced-tips">Advanced Tips &amp; Tricks</a></h3>
+      <p>
+        Ready to go beyond the basics? Learn how to pair pre-compressed <code>.gz</code>
+        sidecars with per-directory rewrite rules, run React SPAs, and squeeze out
+        maximum performance from a single binary.
+      </p>
+      <a href="/blog/advanced-tips">Read more &rarr;</a>
+    </div>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

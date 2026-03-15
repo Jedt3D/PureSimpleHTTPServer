@@ -1,0 +1,42 @@
+[
+  {
+    "id": 1,
+    "name": "Alice Nakamura",
+    "email": "alice@example.com",
+    "role": "admin",
+    "created_at": "2024-01-15T09:00:00Z",
+    "active": true
+  },
+  {
+    "id": 2,
+    "name": "Bob Okonkwo",
+    "email": "bob@example.com",
+    "role": "editor",
+    "created_at": "2024-03-22T14:30:00Z",
+    "active": true
+  },
+  {
+    "id": 3,
+    "name": "Carol Lindqvist",
+    "email": "carol@example.com",
+    "role": "viewer",
+    "created_at": "2024-06-01T08:15:00Z",
+    "active": true
+  },
+  {
+    "id": 4,
+    "name": "David Park",
+    "email": "david@example.com",
+    "role": "editor",
+    "created_at": "2024-09-10T11:45:00Z",
+    "active": false
+  },
+  {
+    "id": 5,
+    "name": "Eva Rossi",
+    "email": "eva@example.com",
+    "role": "viewer",
+    "created_at": "2025-02-28T16:00:00Z",
+    "active": true
+  }
+]

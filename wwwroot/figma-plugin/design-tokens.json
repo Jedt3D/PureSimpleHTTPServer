@@ -1,0 +1,69 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "theme": {
+    "dark": {
+      "bg-page":      { "$value": "#0d1117", "$type": "color", "$description": "Page background" },
+      "bg-card":      { "$value": "#161b22", "$type": "color", "$description": "Card background" },
+      "bg-inner":     { "$value": "#21262d", "$type": "color", "$description": "Badge / inner element background" },
+      "border":       { "$value": "#21262d", "$type": "color", "$description": "Card border" },
+      "border-2":     { "$value": "#30363d", "$type": "color", "$description": "Toggle / badge border" },
+      "text":         { "$value": "#c9d1d9", "$type": "color", "$description": "Body text" },
+      "text-muted":   { "$value": "#8b949e", "$type": "color", "$description": "Secondary / muted text" },
+      "text-heading": { "$value": "#f0f6fc", "$type": "color", "$description": "Page heading (h1)" },
+      "footer":       { "$value": "#484f58", "$type": "color", "$description": "Footer text" },
+      "link":         { "$value": "#58a6ff", "$type": "color", "$description": "Card title link colour" },
+      "border-hover": { "$value": "#1f6feb", "$type": "color", "$description": "Card hover border" }
+    },
+    "light": {
+      "bg-page":      { "$value": "#ffffff",  "$type": "color" },
+      "bg-card":      { "$value": "#f6f8fa",  "$type": "color" },
+      "bg-inner":     { "$value": "#eaeef2",  "$type": "color" },
+      "border":       { "$value": "#d0d7de",  "$type": "color" },
+      "border-2":     { "$value": "#d0d7de",  "$type": "color" },
+      "text":         { "$value": "#24292f",  "$type": "color" },
+      "text-muted":   { "$value": "#57606a",  "$type": "color" },
+      "text-heading": { "$value": "#1f2328",  "$type": "color" },
+      "footer":       { "$value": "#8b949e",  "$type": "color" },
+      "link":         { "$value": "#0969da",  "$type": "color" },
+      "border-hover": { "$value": "#1f6feb",  "$type": "color" }
+    }
+  },
+  "accent": {
+    "purple": { "$value": "#c678dd", "$type": "color", "$description": "keyword / type token" },
+    "teal":   { "$value": "#56b6c2", "$type": "color", "$description": "builtin token" },
+    "orange": { "$value": "#d19a66", "$type": "color", "$description": "number literal token" },
+    "red":    { "$value": "#e06c75", "$type": "color", "$description": "string token" },
+    "green":  { "$value": "#98c379", "$type": "color", "$description": "comment / string token" },
+    "yellow": { "$value": "#e5c07b", "$type": "color", "$description": "variable / property token" },
+    "gray":   { "$value": "#5c6370", "$type": "color", "$description": "comment token" }
+  },
+  "typography": {
+    "font-family":     { "$value": "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", "$type": "fontFamily" },
+    "size-hero-h1":    { "$value": "35",   "$type": "fontSize",   "$description": "2.2rem @ 16px base" },
+    "size-body":       { "$value": "16",   "$type": "fontSize" },
+    "size-card-title": { "$value": "17",   "$type": "fontSize" },
+    "size-badge":      { "$value": "11",   "$type": "fontSize" },
+    "size-card-desc":  { "$value": "13.6", "$type": "fontSize" },
+    "size-footer":     { "$value": "12.8", "$type": "fontSize" },
+    "weight-regular":  { "$value": "400",  "$type": "fontWeight" },
+    "weight-semibold": { "$value": "600",  "$type": "fontWeight" },
+    "weight-bold":     { "$value": "700",  "$type": "fontWeight" },
+    "line-height-body":  { "$value": "160%", "$type": "lineHeight" },
+    "line-height-card":  { "$value": "150%", "$type": "lineHeight" }
+  },
+  "spacing": {
+    "page-pad-v":    { "$value": "48", "$type": "spacing", "$description": "3rem" },
+    "page-pad-h":    { "$value": "32", "$type": "spacing", "$description": "2rem" },
+    "hero-mb":       { "$value": "48", "$type": "spacing", "$description": "gap below hero" },
+    "card-pad-x":    { "$value": "28", "$type": "spacing" },
+    "card-pad-y":    { "$value": "24", "$type": "spacing" },
+    "card-gap":      { "$value": "16", "$type": "spacing" },
+    "dot-size":      { "$value": "8",  "$type": "spacing" },
+    "dot-gap":       { "$value": "4",  "$type": "spacing" }
+  },
+  "border-radius": {
+    "card":   { "$value": "10", "$type": "borderRadius" },
+    "badge":  { "$value": "20", "$type": "borderRadius" },
+    "toggle": { "$value": "6",  "$type": "borderRadius" }
+  }
+}

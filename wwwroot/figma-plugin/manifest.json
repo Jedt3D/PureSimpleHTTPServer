@@ -1,0 +1,8 @@
+{
+  "name": "Xojo Design System Creator",
+  "id": "xojo-design-system-creator-001",
+  "api": "1.0.0",
+  "main": "code.js",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page"
+}

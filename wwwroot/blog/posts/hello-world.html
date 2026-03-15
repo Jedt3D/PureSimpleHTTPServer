@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hello World — PureSimpleHTTPServer Blog</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/blog/">Blog</a></span>
+      <span>Hello World</span>
+    </div>
+
+    <h1>Hello World</h1>
+    <p class="meta" style="color:var(--text-muted);font-size:.9rem;">Published 2026-03-15</p>
+
+    <p>
+      Welcome to <strong>PureSimpleHTTPServer</strong> — the static file server that gets out
+      of your way. If you have ever struggled to remember the right Python one-liner, wrestled
+      with Node version managers, or just wanted something that works immediately with no
+      setup, this is the tool for you.
+    </p>
+
+    <h2>Step 1 — Download the binary</h2>
+    <p>
+      Head to the <a href="https://github.com/example/PureSimpleHTTPServer/releases" target="_blank" rel="noopener">Releases page</a>
+      and grab the archive for your operating system. Unzip it anywhere you like.
+      There is nothing else to install.
+    </p>
+    <pre><code># macOS / Linux
+curl -L https://example.com/releases/v1.5.0/pshs-macos-arm64.tar.gz | tar xz
+chmod +x PureSimpleHTTPServer</code></pre>
+
+    <p>
+      On Windows, simply unzip the <code>.zip</code> and double-click
+      <code>PureSimpleHTTPServer.exe</code>, or run it from PowerShell.
+    </p>
+
+    <h2>Step 2 — Organise your files</h2>
+    <p>
+      PureSimpleHTTPServer serves files from a root directory — by default a folder called
+      <code>wwwroot</code> next to the binary. Place your HTML, CSS, JavaScript, and images
+      inside that folder:
+    </p>
+    <pre><code>my-project/
+  PureSimpleHTTPServer      ← the binary
+  wwwroot/
+    index.html
+    about.html
+    assets/
+      style.css
+      app.js
+      logo.png</code></pre>
+    <p>
+      You can also pass any directory with <code>--root</code> if you prefer a different layout.
+    </p>
+
+    <h2>Step 3 — Start the server</h2>
+    <p>Open a terminal, navigate to your project folder, and run:</p>
+    <pre><code>./PureSimpleHTTPServer --port 8080 --root ./wwwroot</code></pre>
+    <p>
+      You should see a startup message like:
+    </p>
+    <pre><code>PureSimpleHTTPServer v1.5.0 listening on http://0.0.0.0:8080
+Serving: /Users/yourname/my-project/wwwroot</code></pre>
+
+    <h2>Step 4 — Open your browser</h2>
+    <p>
+      Navigate to <a href="http://localhost:8080" target="_blank" rel="noopener">http://localhost:8080</a>.
+      Your <code>index.html</code> will be served automatically. Any file inside
+      <code>wwwroot</code> is accessible at its relative path — for example,
+      <code>wwwroot/about.html</code> is available at <code>/about.html</code>.
+    </p>
+    <p>
+      If you enable the <code>--clean-urls</code> flag, the server will also serve
+      <code>about.html</code> when the browser requests <code>/about</code> — no
+      <code>rewrite.conf</code> required for simple cases.
+    </p>
+
+    <h2>What's next?</h2>
+    <p>
+      Once you are comfortable with the basics, check out the
+      <a href="/blog/getting-started-with-url-rewriting">URL Rewriting guide</a> to
+      learn how to set up clean, SEO-friendly URLs, permanent redirects, and regex-based
+      routing. For a full list of CLI flags and configuration options, see the
+      <a href="/docs/">Documentation</a>.
+    </p>
+    <p>
+      Happy serving!
+    </p>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

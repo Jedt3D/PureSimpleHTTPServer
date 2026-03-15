@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xojo Syntax Highlight</title>
+
+  <!-- Apply stored theme before paint to avoid flash -->
+  <script>(function(){var t=localStorage.getItem('xojo-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();</script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Theme variables ───────────────────────────────────────────────────── */
+    :root {
+      --bg-page:       #0d1117;
+      --bg-card:       #161b22;
+      --bg-inner:      #21262d;
+      --border:        #21262d;
+      --border-2:      #30363d;
+      --text:          #c9d1d9;
+      --text-muted:    #8b949e;
+      --text-heading:  #f0f6fc;
+      --card-hover-bg: #1c2230;
+      --footer-color:  #484f58;
+    }
+    [data-theme="light"] {
+      --bg-page:       #ffffff;
+      --bg-card:       #f6f8fa;
+      --bg-inner:      #eaeef2;
+      --border:        #d0d7de;
+      --border-2:      #d0d7de;
+      --text:          #24292f;
+      --text-muted:    #57606a;
+      --text-heading:  #1f2328;
+      --card-hover-bg: #eaeef2;
+      --footer-color:  #8b949e;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-page);
+      color: var(--text);
+      padding: 3rem 2rem;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Top bar ───────────────────────────────────────────────────────────── */
+    .top-bar {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 1.5rem;
+    }
+
+    /* ── Theme toggle ──────────────────────────────────────────────────────── */
+    .theme-toggle {
+      background: none; border: 1px solid var(--border-2); border-radius: 6px;
+      padding: 4px 7px; cursor: pointer; color: var(--text-muted);
+      display: flex; align-items: center; line-height: 0;
+    }
+    .theme-toggle:hover { color: var(--text); border-color: var(--text-muted); }
+    .icon-moon { display: none; }
+    .icon-sun  { display: block; }
+    [data-theme="light"] .icon-moon { display: block; }
+    [data-theme="light"] .icon-sun  { display: none; }
+
+    /* ── Hero ──────────────────────────────────────────────────────────────── */
+    .hero { max-width: 720px; margin: 0 auto 3rem; text-align: center; }
+    .hero h1 { font-size: 2.2rem; color: var(--text-heading); margin-bottom: 0.75rem; letter-spacing: -0.01em; }
+    .hero p  { color: var(--text-muted); font-size: 1rem; max-width: 480px; margin: 0 auto; }
+
+    /* ── Card grid ─────────────────────────────────────────────────────────── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .card {
+      display: block; text-decoration: none;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.5rem 1.75rem;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .card:hover { border-color: #1f6feb; background: var(--card-hover-bg); }
+
+    .card-header { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }
+    .card h2 { font-size: 1.05rem; color: #58a6ff; font-weight: 600; }
+    [data-theme="light"] .card h2 { color: #0969da; }
+
+    .card-badge {
+      font-size: 0.7rem; padding: 1px 8px; border-radius: 20px;
+      border: 1px solid var(--border-2); color: var(--text-muted); background: var(--bg-inner);
+    }
+
+    .card p { color: var(--text-muted); font-size: 0.85rem; line-height: 1.5; }
+    .card code { color: var(--text); font-size: 0.82em; }
+
+    .card .token-strip { display: flex; gap: 4px; margin-top: 1rem; }
+    .card .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    footer { text-align: center; margin-top: 3rem; color: var(--footer-color); font-size: 0.8rem; }
+    footer a { color: var(--footer-color); text-decoration: none; }
+    footer a:hover { color: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<div class="top-bar">
+  <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+    <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+    <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+  </button>
+</div>
+
+<div class="hero">
+  <h1>Xojo Syntax Highlight</h1>
+  <p>Syntax highlighting for the Xojo programming language — four library implementations with One Dark / One Light color schemes.</p>
+</div>
+
+<div class="card-grid">
+
+  <a class="card" href="/about.html">
+    <div class="card-header">
+      <h2>About</h2>
+      <span class="card-badge">Info</span>
+    </div>
+    <p>Learn more about the Xojo Syntax Highlight project and its features.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#58a6ff"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/api/">
+    <div class="card-header">
+      <h2>API</h2>
+      <span class="card-badge">Documentation</span>
+    </div>
+    <p>API documentation and reference for the syntax highlighting libraries.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#58a6ff"></span>
+      <span class="dot" style="background:#98c379"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/assets/">
+    <div class="card-header">
+      <h2>Assets</h2>
+      <span class="card-badge">Resources</span>
+    </div>
+    <p>Static assets including images, fonts, stylesheets, and other resources.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#e5c07b"></span>
+      <span class="dot" style="background:#d19a66"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/blog/">
+    <div class="card-header">
+      <h2>Blog</h2>
+      <span class="card-badge">Articles</span>
+    </div>
+    <p>Blog posts, tutorials, and articles about Xojo syntax highlighting.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#c678dd"></span>
+      <span class="dot" style="background:#56b6c2"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/docs/">
+    <div class="card-header">
+      <h2>Documentation</h2>
+      <span class="card-badge">Guides</span>
+    </div>
+    <p>Comprehensive documentation, installation guides, and usage examples.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#98c379"></span>
+      <span class="dot" style="background:#e5c07b"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/figma-plugin/">
+    <div class="card-header">
+      <h2>Figma Plugin</h2>
+      <span class="card-badge">Plugin</span>
+    </div>
+    <p>Figma plugin for syntax highlighting in design mockups and prototypes.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#e06c75"></span>
+      <span class="dot" style="background:#98c379"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/highlightjs/demo/">
+    <div class="card-header">
+      <h2>highlight.js</h2>
+      <span class="card-badge">JavaScript</span>
+    </div>
+    <p>ES module factory function. Register once, works with any highlight.js theme. Ideal for static sites and Markdown renderers.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#c678dd"></span>
+      <span class="dot" style="background:#56b6c2"></span>
+      <span class="dot" style="background:#d19a66"></span>
+      <span class="dot" style="background:#e06c75"></span>
+      <span class="dot" style="background:#98c379"></span>
+      <span class="dot" style="background:#e5c07b"></span>
+      <span class="dot" style="background:#5c6370"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/prismjs/demo/">
+    <div class="card-header">
+      <h2>Prism.js</h2>
+      <span class="card-badge">JavaScript</span>
+    </div>
+    <p>Self-executing IIFE that registers with Prism automatically. Load after prism.js and use <code>language-xojo</code> on any block.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#cc99cd"></span>
+      <span class="dot" style="background:#67cdcc"></span>
+      <span class="dot" style="background:#f08d49"></span>
+      <span class="dot" style="background:#7ec699"></span>
+      <span class="dot" style="background:#e5c07b"></span>
+      <span class="dot" style="background:#999999"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/codemirror/demo/">
+    <div class="card-header">
+      <h2>CodeMirror 6</h2>
+      <span class="card-badge">JavaScript</span>
+    </div>
+    <p>StreamParser for CodeMirror 6. Fully editable code editor with Lezer highlight tags and One Dark / default light theme.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#c678dd"></span>
+      <span class="dot" style="background:#56b6c2"></span>
+      <span class="dot" style="background:#d19a66"></span>
+      <span class="dot" style="background:#e06c75"></span>
+      <span class="dot" style="background:#98c379"></span>
+      <span class="dot" style="background:#e5c07b"></span>
+      <span class="dot" style="background:#5c6370"></span>
+    </div>
+  </a>
+
+  <a class="card" href="/pygments/demo/">
+    <div class="card-header">
+      <h2>Pygments</h2>
+      <span class="card-badge">Python</span>
+    </div>
+    <p>RegexLexer for server-side rendering with Python. Includes <code>XojoOneDarkStyle</code> and <code>XojoOneLightStyle</code> — no CDN dependencies.</p>
+    <div class="token-strip">
+      <span class="dot" style="background:#c678dd"></span>
+      <span class="dot" style="background:#56b6c2"></span>
+      <span class="dot" style="background:#d19a66"></span>
+      <span class="dot" style="background:#e06c75"></span>
+      <span class="dot" style="background:#98c379"></span>
+      <span class="dot" style="background:#e5c07b"></span>
+      <span class="dot" style="background:#5c6370"></span>
+    </div>
+  </a>
+
+</div>
+
+<footer>
+  <a href="https://github.com/worajedt/xojo-syntax-highlight">github.com/worajedt/xojo-syntax-highlight</a>
+</footer>
+
+<script>
+function toggleTheme() {
+  var n = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', n);
+  localStorage.setItem('xojo-theme', n);
+}
+</script>
+
+</body>
+</html>

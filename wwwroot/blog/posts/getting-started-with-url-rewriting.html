@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started with URL Rewriting — PureSimpleHTTPServer Blog</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/blog/">Blog</a></span>
+      <span>Getting Started with URL Rewriting</span>
+    </div>
+
+    <h1>Getting Started with URL Rewriting</h1>
+    <p class="meta" style="color:var(--text-muted);font-size:.9rem;">Published 2026-03-10</p>
+
+    <p>
+      Clean URLs are one of the most visible quality signals of a well-crafted website.
+      Visitors (and search engines) trust <code>/about</code> over <code>/about.html</code>,
+      and <code>/blog/hello-world</code> over <code>/blog/posts/hello-world.html</code>.
+      PureSimpleHTTPServer makes it straightforward to achieve both without touching your file
+      structure — through a combination of the <code>--clean-urls</code> flag and plain-text
+      <code>rewrite.conf</code> files.
+    </p>
+
+    <h2>What URL rewriting is and why it matters</h2>
+    <p>
+      URL rewriting is the practice of mapping one URL to another at the server level without
+      redirecting the browser. When a visitor requests <code>/about</code>, the server quietly
+      reads <code>about.html</code> and returns it — the address bar never changes.
+    </p>
+    <p>There are three main reasons to care about it:</p>
+    <ul>
+      <li><strong>Clean URLs</strong> — Remove extensions and hierarchy noise so URLs are
+          shorter, more memorable, and friendlier to share.</li>
+      <li><strong>Permanent redirects</strong> — When you reorganise a site, 301 redirects
+          preserve search-engine ranking and update stored bookmarks automatically.</li>
+      <li><strong>Site migration</strong> — Map old URL patterns to a new structure in one
+          place, so old links from other sites continue to work.</li>
+    </ul>
+
+    <h2>The quick win — <code>--clean-urls</code></h2>
+    <p>
+      For the most common case — serving every <code>.html</code> file without its extension —
+      you do not need a <code>rewrite.conf</code> at all. Just add <code>--clean-urls</code>:
+    </p>
+    <pre><code>./PureSimpleHTTPServer --port 8080 --root ./wwwroot --clean-urls</code></pre>
+    <p>
+      With this flag enabled, the server automatically tries <code>&lt;path&gt;.html</code>
+      whenever a request arrives for a URL that has no extension and does not match a directory.
+      So <code>/about</code>, <code>/docs/quickstart</code>, and <code>/blog/hello-world</code>
+      all resolve to their <code>.html</code> counterparts on disk with no configuration required.
+    </p>
+    <p>
+      <code>--clean-urls</code> handles the mechanical one-to-one mapping. For anything more
+      structural — like mapping <code>/blog/hello-world</code> to
+      <code>/blog/posts/hello-world.html</code> — you need a <code>rewrite.conf</code>.
+    </p>
+
+    <h2>Creating a rewrite.conf</h2>
+    <p>
+      A <code>rewrite.conf</code> is a plain-text file you place anywhere inside your
+      <code>wwwroot</code> tree. PureSimpleHTTPServer reads the file closest to the
+      requested URL first, then falls through to the parent directory's rules.
+    </p>
+    <p>The file format supports three pattern types:</p>
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Syntax</th><th>Example pattern</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Exact</td>
+          <td><code>rewrite /path /target</code></td>
+          <td><code>rewrite /about /about.html</code></td>
+        </tr>
+        <tr>
+          <td>Glob</td>
+          <td><code>rewrite /prefix/* /target/{path}.ext</code></td>
+          <td><code>rewrite /blog/* /blog/posts/{path}.html</code></td>
+        </tr>
+        <tr>
+          <td>Regex</td>
+          <td><code>regex rewrite ~/pattern /target/{re.1}</code></td>
+          <td><code>regex rewrite ~/user/([0-9]+) /api/v1/users/{re.1}</code></td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      The <code>rewrite</code> directive serves a different file internally — the browser
+      never sees a redirect. The <code>redir</code> directive sends an HTTP 301 or 302,
+      which tells the browser to navigate to the new URL.
+    </p>
+
+    <h2>Real example — blog slug routing</h2>
+    <p>
+      A typical blog keeps post files inside a <code>posts/</code> subdirectory but wants
+      to expose them at a cleaner top-level path. Place this in
+      <code>wwwroot/rewrite.conf</code>:
+    </p>
+    <pre><code># wwwroot/rewrite.conf
+
+# Map /blog/&lt;slug&gt; to the actual HTML file under posts/
+rewrite /blog/* /blog/posts/{path}.html</code></pre>
+    <p>This single rule maps:</p>
+    <ul>
+      <li><code>/blog/hello-world</code> &rarr; serves <code>/blog/posts/hello-world.html</code></li>
+      <li><code>/blog/getting-started-with-url-rewriting</code> &rarr; serves <code>/blog/posts/getting-started-with-url-rewriting.html</code></li>
+      <li><code>/blog/advanced-tips</code> &rarr; serves <code>/blog/posts/advanced-tips.html</code></li>
+    </ul>
+    <p>
+      The <code>*</code> wildcard captures exactly one path segment. The captured value is
+      substituted wherever <code>{path}</code> appears in the target. Two additional
+      placeholders are available when the captured segment contains a slash:
+      <code>{dir}</code> for the directory portion and <code>{file}</code> for the filename.
+    </p>
+
+    <h2>Per-directory rewrite.conf</h2>
+    <p>
+      Rather than putting all rules in a single root-level file, you can distribute
+      <code>rewrite.conf</code> files throughout the tree. Each file governs only the
+      directory it lives in and its subdirectories:
+    </p>
+    <pre><code>wwwroot/
+  rewrite.conf          &larr; global rules (applied last)
+  blog/
+    rewrite.conf        &larr; rules for /blog/* (applied first for blog URLs)
+    posts/
+      &hellip;
+  api/
+    rewrite.conf        &larr; rules for /api/* (applied first for API URLs)
+    v1/
+      &hellip;</code></pre>
+    <p>
+      Subdirectory rules always take precedence over the global rules, so you can override
+      behaviour for a specific section without touching the root configuration. This demo
+      site uses per-directory files in both <code>blog/</code> and <code>api/</code> — check
+      them out as working examples.
+    </p>
+
+    <h2>Redirect status codes — 301 vs 302</h2>
+    <p>
+      When you use <code>redir</code> instead of <code>rewrite</code>, you must also provide
+      an HTTP status code:
+    </p>
+    <pre><code># Permanent — search engines update their index, browsers cache the redirect
+redir /old-page /new-page 301
+
+# Temporary — browsers do not cache, search engines keep the original URL
+redir /promo /sale-landing 302</code></pre>
+    <p>
+      The rule of thumb: use <strong>301</strong> for anything you have moved permanently
+      (renamed pages, reorganised site structure, domain migrations). Use <strong>302</strong>
+      for temporary promotions, A/B test variants, or maintenance pages that will disappear
+      in the future.
+    </p>
+    <p>
+      If you are unsure, lean towards <strong>302</strong> during development — you can
+      always promote it to 301 once you are confident the new URL is stable. Changing a 301
+      back is harder because browsers may have cached it aggressively.
+    </p>
+    <p>
+      Ready for more? See <a href="/blog/advanced-tips">Advanced Tips &amp; Tricks</a> for
+      pre-compressed assets, SPA mode, and running multiple server instances.
+    </p>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

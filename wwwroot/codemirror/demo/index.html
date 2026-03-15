@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Xojo · CodeMirror 6 Demo</title>
+
+  <!-- Apply stored theme before paint to avoid flash -->
+  <script>(function(){var t=localStorage.getItem('xojo-theme')||'dark';document.documentElement.setAttribute('data-theme',t);})();</script>
+
+  <!--
+    Import map with '*' prefix: esm.sh serves each package in "external" mode,
+    meaning ALL their imports use bare specifiers resolved through this map.
+    This guarantees every package shares the EXACT same @codemirror/state instance.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "codemirror":                   "https://esm.sh/*codemirror@6.0.2",
+      "@codemirror/autocomplete":     "https://esm.sh/*@codemirror/autocomplete@6",
+      "@codemirror/commands":         "https://esm.sh/*@codemirror/commands@6",
+      "@codemirror/language":         "https://esm.sh/*@codemirror/language@6",
+      "@codemirror/lint":             "https://esm.sh/*@codemirror/lint@6",
+      "@codemirror/search":           "https://esm.sh/*@codemirror/search@6",
+      "@codemirror/state":            "https://esm.sh/*@codemirror/state@6",
+      "@codemirror/view":             "https://esm.sh/*@codemirror/view@6",
+      "@codemirror/theme-one-dark":   "https://esm.sh/*@codemirror/theme-one-dark@6",
+      "@lezer/common":                "https://esm.sh/*@lezer/common@1",
+      "@lezer/highlight":             "https://esm.sh/*@lezer/highlight@1",
+      "@lezer/lr":                    "https://esm.sh/*@lezer/lr@1",
+      "crelt":                        "https://esm.sh/*crelt",
+      "style-mod":                    "https://esm.sh/*style-mod",
+      "w3c-keyname":                  "https://esm.sh/*w3c-keyname",
+      "@marijn/find-cluster-break":   "https://esm.sh/*@marijn/find-cluster-break"
+    }
+  }
+  </script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Theme variables ───────────────────────────────────────────────────── */
+    :root {
+      --bg-page:       #0d1117;
+      --bg-card:       #161b22;
+      --bg-inner:      #21262d;
+      --border:        #21262d;
+      --border-2:      #30363d;
+      --text:          #c9d1d9;
+      --text-muted:    #8b949e;
+      --text-heading:  #f0f6fc;
+      --active-bg:     rgba(31,111,235,0.15);
+      --active-text:   #58a6ff;
+      --active-border: #1f6feb;
+      --usage-bg:      #161b22;
+      --usage-pre-bg:  #0d1117;
+      --usage-pre-c:   #cdd6f4;
+    }
+    [data-theme="light"] {
+      --bg-page:       #ffffff;
+      --bg-card:       #f6f8fa;
+      --bg-inner:      #eaeef2;
+      --border:        #d0d7de;
+      --border-2:      #d0d7de;
+      --text:          #24292f;
+      --text-muted:    #57606a;
+      --text-heading:  #1f2328;
+      --active-bg:     rgba(9,105,218,0.1);
+      --active-text:   #0969da;
+      --active-border: #0969da;
+      --usage-bg:      #f6f8fa;
+      --usage-pre-bg:  #ffffff;
+      --usage-pre-c:   #24292f;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-page);
+      color: var(--text);
+      padding: 2.5rem 2rem;
+      line-height: 1.6;
+    }
+
+    /* ── Navigation ────────────────────────────────────────────────────────── */
+    .lib-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+    .nav-home { color: var(--text-muted); text-decoration: none; font-size: 0.85rem; }
+    .nav-home:hover { color: var(--text); }
+    .nav-right { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .nav-libs  { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .nav-lib {
+      font-size: 0.78rem; padding: 2px 10px; border-radius: 20px;
+      text-decoration: none; color: var(--text-muted);
+      background: var(--bg-inner); border: 1px solid var(--border-2); white-space: nowrap;
+    }
+    .nav-lib:hover { color: var(--text); border-color: var(--text-muted); }
+    .nav-lib.active { color: var(--active-text); background: var(--active-bg); border-color: var(--active-border); }
+
+    /* ── Theme toggle ──────────────────────────────────────────────────────── */
+    .theme-toggle {
+      background: none; border: 1px solid var(--border-2); border-radius: 6px;
+      padding: 4px 7px; cursor: pointer; color: var(--text-muted);
+      display: flex; align-items: center; flex-shrink: 0; line-height: 0;
+    }
+    .theme-toggle:hover { color: var(--text); border-color: var(--text-muted); }
+    .icon-moon { display: none; }
+    .icon-sun  { display: block; }
+    [data-theme="light"] .icon-moon { display: block; }
+    [data-theme="light"] .icon-sun  { display: none; }
+
+    /* ── Page header ───────────────────────────────────────────────────────── */
+    .page-header { display: flex; align-items: baseline; gap: 1rem; margin-bottom: 0.4rem; }
+    h1 { font-size: 1.8rem; color: var(--text-heading); }
+    .lib-badge {
+      font-size: 0.8rem; background: var(--bg-inner); border: 1px solid var(--border-2);
+      border-radius: 20px; padding: 3px 12px; color: var(--text-muted);
+    }
+    .subtitle { color: var(--text-muted); font-size: 0.9rem; margin-bottom: 2rem; }
+
+    h2 {
+      font-size: 1rem; font-weight: 600; color: var(--text-muted);
+      text-transform: uppercase; letter-spacing: 0.08em; margin: 2.5rem 0 0.85rem;
+    }
+    h2:first-of-type { margin-top: 0; }
+
+    /* ── CodeMirror editor container ───────────────────────────────────────── */
+    #editor { border-radius: 8px; overflow: hidden; border: 1px solid var(--border-2); font-size: 0.88rem; }
+    #editor .cm-editor  { border-radius: 8px; }
+    #editor .cm-scroller { max-height: 520px; }
+
+    /* ── Token coverage ────────────────────────────────────────────────────── */
+    .token-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.5rem; }
+    .token-row {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 6px; padding: 0.45rem 0.75rem; font-size: 0.82rem;
+    }
+    .token-row .swatch  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .token-row .label   { color: var(--text-muted); min-width: 5rem; }
+    .token-row .examples { color: var(--text); font-family: monospace; }
+
+    .sw-keyword  { background: #c678dd; }
+    .sw-atom     { background: #d19a66; }
+    .sw-type     { background: #56b6c2; }
+    .sw-builtin  { background: #e06c75; }
+    .sw-comment  { background: #5c6370; }
+    .sw-string   { background: #98c379; }
+    .sw-number   { background: #d19a66; }
+    .sw-meta     { background: #e5c07b; }
+
+    /* ── Usage block ───────────────────────────────────────────────────────── */
+    .usage-block {
+      background: var(--usage-bg); border: 1px solid var(--border-2);
+      border-radius: 8px; padding: 1.5rem;
+    }
+    .usage-block pre {
+      background: var(--usage-pre-bg); border: 1px solid var(--border);
+      border-radius: 6px; padding: 1rem 1.25rem;
+      overflow: auto; font-size: 0.82rem; line-height: 1.65;
+      color: var(--usage-pre-c);
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    }
+    .usage-block p { color: var(--text-muted); font-size: .85rem; margin: 1rem 0 .5rem; }
+    .usage-block p:first-child { margin-top: 0; }
+
+    #loading {
+      color: var(--text-muted); font-size: 0.9rem; padding: 2rem;
+      text-align: center; background: var(--bg-card);
+      border-radius: 8px; border: 1px solid var(--border-2);
+    }
+  </style>
+</head>
+<body>
+
+<nav class="lib-nav">
+  <a href="/" class="nav-home">&#8592; Xojo Syntax Highlight</a>
+  <div class="nav-right">
+    <div class="nav-libs">
+      <a href="/highlightjs/demo/" class="nav-lib">highlight.js</a>
+      <a href="/prismjs/demo/"     class="nav-lib">Prism.js</a>
+      <a href="/codemirror/demo/"  class="nav-lib active">CodeMirror 6</a>
+      <a href="/pygments/demo/"    class="nav-lib">Pygments</a>
+    </div>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+      <svg class="icon-sun" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+      <svg class="icon-moon" xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
+  </div>
+</nav>
+
+<div class="page-header">
+  <h1>Xojo Syntax Highlighting</h1>
+  <span class="lib-badge">CodeMirror 6</span>
+</div>
+<p class="subtitle">StreamLanguage definition — fully editable, works with any CodeMirror 6 theme.</p>
+
+<h2>Live Editor</h2>
+<div id="loading">Loading CodeMirror…</div>
+<div id="editor" style="display:none"></div>
+
+<h2>Token Coverage</h2>
+<div class="token-grid">
+  <div class="token-row"><span class="swatch sw-keyword"></span><span class="label">keyword</span><span class="examples">Var Sub If Return…</span></div>
+  <div class="token-row"><span class="swatch sw-atom"></span><span class="label">atom</span><span class="examples">True False Nil</span></div>
+  <div class="token-row"><span class="swatch sw-type"></span><span class="label">type</span><span class="examples">Integer String Double…</span></div>
+  <div class="token-row"><span class="swatch sw-builtin"></span><span class="label">builtin</span><span class="examples">Self Super Me</span></div>
+  <div class="token-row"><span class="swatch sw-comment"></span><span class="label">comment</span><span class="examples">// line  ' apostrophe</span></div>
+  <div class="token-row"><span class="swatch sw-string"></span><span class="label">string</span><span class="examples">"double quoted"</span></div>
+  <div class="token-row"><span class="swatch sw-number"></span><span class="label">number</span><span class="examples">42  3.14  &amp;hFF  &amp;b1010</span></div>
+  <div class="token-row"><span class="swatch sw-meta"></span><span class="label">meta</span><span class="examples">#pragma #tag #if #endif</span></div>
+</div>
+
+<h2>Usage</h2>
+<div class="usage-block">
+  <p>1. Browser — direct CDN imports (no import map needed):</p>
+  <pre>&lt;script type="module"&gt;
+import { EditorView, basicSetup } from "https://esm.sh/codemirror@6"
+import { StreamLanguage }         from "https://esm.sh/@codemirror/language@6"
+import { xojoStreamParser }       from "./xojo.codemirror.js"
+
+new EditorView({
+  doc: sourceCode,
+  extensions: [
+    basicSetup,
+    StreamLanguage.define(xojoStreamParser),
+  ],
+  parent: document.querySelector('#editor'),
+})
+&lt;/script&gt;</pre>
+
+  <p>2. npm / bundler (Vite, Webpack, Rollup):</p>
+  <pre>import { EditorView, basicSetup } from "codemirror"
+import { StreamLanguage }         from "@codemirror/language"
+import { xojoStreamParser }       from "xojo-syntax-highlight/codemirror"
+
+// Same EditorView setup as above</pre>
+</div>
+
+<!-- Global theme toggle (non-module so toggleTheme() is globally accessible) -->
+<script>
+function toggleTheme() {
+  var n = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', n);
+  localStorage.setItem('xojo-theme', n);
+  if (window.cmSetTheme) window.cmSetTheme(n === 'dark');
+}
+</script>
+
+<script type="module">
+  const loading = document.getElementById('loading');
+
+  try {
+    const [
+      { EditorView, basicSetup },
+      { StreamLanguage },
+      { Compartment },
+      { oneDark },
+      { xojoStreamParser },
+    ] = await Promise.all([
+      import('codemirror'),
+      import('@codemirror/language'),
+      import('@codemirror/state'),
+      import('@codemirror/theme-one-dark'),
+      import('../xojo.codemirror.js'),
+    ]);
+
+  const sampleCode =
+`// Fibonacci — Xojo syntax demo
+' Apostrophe comments work too
+
+#pragma DisableBackgroundTasks
+#tag Module, Name = MathUtils
+
+Function Fibonacci(n As Integer) As Integer
+  If n <= 1 Then Return n
+  Return Fibonacci(n - 1) + Fibonacci(n - 2)
+End Function
+
+#tag EndModule
+
+Class MyWindow
+  Inherits DesktopWindow
+
+  Property Title As String = "My App"
+
+  Sub Opening()
+    Var btn As New DesktopButton
+    btn.Caption = "Click Me"
+    btn.Left = 20
+    btn.Top = 20
+
+    Var mask  As Integer = &hFF00FF    // hex literal
+    Var flags As Integer = &b10101010  // binary literal
+    Var pi    As Double  = 3.14159
+
+    If mask = Nil Or flags = 0 Then
+      Raise New RuntimeException("Error")
+    End If
+
+    AddHandler btn.Pressed, AddressOf ButtonPressed
+  End Sub
+
+  Sub ButtonPressed(sender As DesktopButton)
+    Self.Title = "Clicked!"
+  End Sub
+
+End Class`;
+
+  const themeCompartment = new Compartment();
+  const initialDark = (document.documentElement.getAttribute('data-theme') || 'dark') === 'dark';
+  const editorEl = document.getElementById('editor');
+
+  const view = new EditorView({
+    doc: sampleCode,
+    extensions: [
+      basicSetup,
+      StreamLanguage.define(xojoStreamParser),
+      themeCompartment.of(initialDark ? oneDark : []),
+    ],
+    parent: editorEl,
+  });
+
+  // Expose theme switcher to the global toggle function
+  window.cmSetTheme = (isDark) => {
+    view.dispatch({ effects: themeCompartment.reconfigure(isDark ? oneDark : []) });
+  };
+
+  loading.style.display = 'none';
+  editorEl.style.display = 'block';
+
+  } catch (err) {
+    loading.textContent = `Failed to load CodeMirror: ${err.message}`;
+    loading.style.color = '#f85149';
+    console.error(err);
+  }
+</script>
+
+</body>
+</html>

@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quick Start — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/" class="active">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/docs/">Docs</a></span>
+      <span>Quick Start</span>
+    </div>
+    <h1>Quick Start</h1>
+    <p>Get PureSimpleHTTPServer running in under two minutes.</p>
+
+    <h2>1. Download or build</h2>
+    <p>Download the pre-built binary for your platform, or compile from source:</p>
+    <pre><code>pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb</code></pre>
+
+    <h2>2. Arrange your files</h2>
+    <p>Put the binary next to your site files in a <code>wwwroot/</code> folder:</p>
+    <pre><code>my-site/
+  PureSimpleHTTPServer   ← binary
+  wwwroot/
+    index.html
+    style.css
+    ...</code></pre>
+    <p>On macOS/Linux, make it executable:</p>
+    <pre><code>chmod +x PureSimpleHTTPServer</code></pre>
+
+    <h2>3. Start the server</h2>
+    <pre><code>./PureSimpleHTTPServer</code></pre>
+    <p>Open <a href="http://127.0.0.1:8080">http://127.0.0.1:8080</a> in your browser. That's it.</p>
+
+    <h2>Common options</h2>
+    <table>
+      <thead><tr><th>Flag</th><th>Effect</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><code>--port N</code></td><td>Use a different port</td><td><code>--port 3000</code></td></tr>
+        <tr><td><code>--root DIR</code></td><td>Serve from any directory</td><td><code>--root ./dist</code></td></tr>
+        <tr><td><code>--browse</code></td><td>Enable directory listing</td><td><code>--browse</code></td></tr>
+        <tr><td><code>--spa</code></td><td>SPA mode (serve index.html for 404s)</td><td><code>--spa</code></td></tr>
+        <tr><td><code>--clean-urls</code></td><td>Serve <code>/page.html</code> at <code>/page</code></td><td><code>--clean-urls</code></td></tr>
+        <tr><td><code>--log FILE</code></td><td>Write access log</td><td><code>--log access.log</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Next steps</h2>
+    <ul>
+      <li><a href="/docs/cli-reference/">CLI Reference</a> — all flags and defaults</li>
+      <li><a href="/docs/url-rewriting/">URL Rewriting</a> — rewrite.conf syntax</li>
+      <li><a href="/blog/getting-started-with-url-rewriting">Blog: Getting Started with URL Rewriting</a></li>
+    </ul>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

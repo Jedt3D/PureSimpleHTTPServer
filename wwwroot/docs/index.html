@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Documentation — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div style="display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;margin-bottom:.5rem;">
+      <h1 style="margin:0;">Documentation</h1>
+      <span class="badge">v1.5.0</span>
+      <a href="https://github.com/example/PureSimpleHTTPServer" target="_blank" rel="noopener"
+         style="display:inline-block;background:#24292e;color:#fff;border-radius:4px;padding:.2rem .65rem;font-size:.78rem;font-weight:600;text-decoration:none;">
+        &#9733; View on GitHub
+      </a>
+    </div>
+    <p style="color:var(--text-muted);">
+      Everything you need to install, configure, and extend PureSimpleHTTPServer.
+      Full documentation in Markdown format is also available in the <code>docs/</code>
+      directory of the source repository.
+    </p>
+
+    <div class="docs-grid">
+
+      <div class="docs-section card">
+        <h2>User Guides</h2>
+        <ul>
+          <li>
+            <a href="/docs/quickstart/">Quick Start</a>
+            <small>Download, run, and serve your first site in two minutes.</small>
+          </li>
+          <li>
+            <a href="/docs/cli-reference/">CLI Reference</a>
+            <small>All command-line flags and their default values.</small>
+          </li>
+          <li>
+            <a href="/docs/url-rewriting/">URL Rewriting</a>
+            <small>rewrite.conf syntax: exact, glob, and regex rules.</small>
+          </li>
+          <li>
+            <a href="/blog/getting-started-with-url-rewriting">Logging</a>
+            <small>Access log format, log levels, and log rotation.</small>
+          </li>
+          <li>
+            <a href="/blog/advanced-tips">Scenarios &amp; Tips</a>
+            <small>Common deployment patterns: SPA, embedded assets, performance.</small>
+          </li>
+          <li>
+            <a href="/blog/">Blog</a>
+            <small>Tutorials, tips, and updates from the project.</small>
+          </li>
+        </ul>
+      </div>
+
+      <div class="docs-section card">
+        <h2>Developer Guides</h2>
+        <ul>
+          <li>
+            <a href="https://github.com/example/PureSimpleHTTPServer/blob/main/docs/developer/BUILDING.md">Building</a>
+            <small>How to compile PureSimpleHTTPServer from source on all platforms.</small>
+          </li>
+          <li>
+            <a href="https://github.com/example/PureSimpleHTTPServer/blob/main/docs/developer/ARCHITECTURE.md">Architecture</a>
+            <small>Module layout, request lifecycle, and design decisions.</small>
+          </li>
+          <li>
+            <a href="https://github.com/example/PureSimpleHTTPServer/blob/main/docs/developer/MODULE_REFERENCE.md">Module Reference</a>
+            <small>Public procedures and data structures for each module.</small>
+          </li>
+          <li>
+            <a href="https://github.com/example/PureSimpleHTTPServer/blob/main/docs/developer/TESTING.md">Testing</a>
+            <small>Running the PureUnit test suite and writing new tests.</small>
+          </li>
+          <li>
+            <a href="https://github.com/example/PureSimpleHTTPServer/blob/main/docs/developer/EXTENDING.md">Extending</a>
+            <small>Adding new MIME types, middleware hooks, and custom handlers.</small>
+          </li>
+        </ul>
+      </div>
+
+    </div>
+
+    <h2>Quick links</h2>
+    <div class="card-grid">
+      <div class="card">
+        <h3>New to PureSimpleHTTPServer?</h3>
+        <p>Start with the <a href="/docs/quickstart/">Quick Start guide</a> — you will have a server running in under two minutes.</p>
+      </div>
+      <div class="card">
+        <h3>Want clean URLs?</h3>
+        <p>Read <a href="/docs/url-rewriting/">URL Rewriting</a> or check out the live demo in the <a href="/blog/getting-started-with-url-rewriting">Blog</a>.</p>
+      </div>
+      <div class="card">
+        <h3>Contributing?</h3>
+        <p>See the developer docs on GitHub for Building and Testing guides.</p>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

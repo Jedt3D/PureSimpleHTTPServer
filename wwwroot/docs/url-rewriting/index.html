@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URL Rewriting — PureSimpleHTTPServer</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/" class="active">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/docs/">Docs</a></span>
+      <span>URL Rewriting</span>
+    </div>
+    <h1>URL Rewriting</h1>
+    <p>PureSimpleHTTPServer supports URL rewriting and redirecting via a simple rule file. Rules apply to every GET request before the file is served.</p>
+
+    <h2>Quick start</h2>
+    <pre><code>./PureSimpleHTTPServer --rewrite rewrite.conf</code></pre>
+
+    <h2>Rule syntax</h2>
+    <pre><code>rewrite  &lt;pattern&gt;  &lt;destination&gt;
+redir    &lt;pattern&gt;  &lt;destination&gt;  [status-code]</code></pre>
+
+    <table>
+      <thead><tr><th>Verb</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>rewrite</code></td><td>Internally rewrites the path — client sees nothing, a different file is served</td></tr>
+        <tr><td><code>redir</code></td><td>Sends an HTTP redirect response to the client (302 by default, or specify 301)</td></tr>
+      </tbody>
+    </table>
+
+    <p>Lines starting with <code>#</code> are comments. Blank lines are ignored.</p>
+
+    <h2>Pattern types</h2>
+    <table>
+      <thead><tr><th>Prefix</th><th>Type</th><th>Example</th></tr></thead>
+      <tbody>
+        <tr><td><em>(none)</em></td><td>Exact match</td><td><code>/about</code> — matches only <code>/about</code></td></tr>
+        <tr><td>Trailing <code>*</code></td><td>Glob</td><td><code>/blog/*</code> — captures everything after the prefix</td></tr>
+        <tr><td>Leading <code>~</code></td><td>Regex</td><td><code>~/user/([0-9]+)</code> — POSIX regex with capture groups</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Destination placeholders</h2>
+    <table>
+      <thead><tr><th>Placeholder</th><th>Expands to</th></tr></thead>
+      <tbody>
+        <tr><td><code>{path}</code></td><td>Text captured by <code>*</code> in a glob pattern</td></tr>
+        <tr><td><code>{file}</code></td><td>Basename (last segment) of <code>{path}</code></td></tr>
+        <tr><td><code>{dir}</code></td><td>Directory portion (everything before the last <code>/</code>) of <code>{path}</code></td></tr>
+        <tr><td><code>{re.1}</code> … <code>{re.9}</code></td><td>Regex capture groups 1–9</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Examples</h2>
+
+    <h3>Exact rewrite — clean URL</h3>
+    <pre><code>rewrite /about /about.html</code></pre>
+
+    <h3>Glob rewrite — blog slugs</h3>
+    <pre><code># /blog/my-post  →  /blog/posts/my-post.html
+rewrite /blog/* /blog/posts/{path}.html</code></pre>
+
+    <h3>Glob rewrite — preserve dir/file structure</h3>
+    <pre><code># /static/img/logo.png  →  /assets/img/logo.png
+rewrite /static/* /assets/{dir}/{file}</code></pre>
+
+    <h3>Regex rewrite — user profiles</h3>
+    <pre><code># /user/42  →  /api/v1/users/42
+rewrite ~/user/([0-9]+) /api/v1/users/{re.1}</code></pre>
+
+    <h3>Permanent redirect (301)</h3>
+    <pre><code>redir /old-page /new-page 301</code></pre>
+
+    <h3>Temporary redirect (302 — default)</h3>
+    <pre><code>redir /old /new</code></pre>
+
+    <h2>Per-directory rules</h2>
+    <p>Place a <code>rewrite.conf</code> file inside any served directory. Rules in that file apply to requests whose URL path falls within that directory.</p>
+    <p><strong>Evaluation order:</strong> global rules (from <code>--rewrite FILE</code>) are checked first; per-directory rules second. The first matching rule wins.</p>
+    <p>Per-directory rule files are cached and automatically reloaded when the file's modification time changes.</p>
+
+    <h2>Integration with --clean-urls</h2>
+    <p>Rewrite rules are applied <em>before</em> the clean-URL extension lookup. A rewrite to <code>/page</code> will then benefit from the <code>.html</code> extension fallback if <code>/page</code> does not exist but <code>/page.html</code> does.</p>
+
+    <h2>Limits</h2>
+    <table>
+      <thead><tr><th>Item</th><th>Limit</th></tr></thead>
+      <tbody>
+        <tr><td>Global rules</td><td>64</td></tr>
+        <tr><td>Per-directory rules per directory</td><td>16</td></tr>
+        <tr><td>Cached directories</td><td>8</td></tr>
+        <tr><td>Pattern / destination length</td><td>511 bytes (ASCII)</td></tr>
+        <tr><td>Regex capture groups</td><td>9</td></tr>
+      </tbody>
+    </table>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

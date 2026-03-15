@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Advanced Tips &amp; Tricks — PureSimpleHTTPServer Blog</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+  <nav>
+    <span class="brand">PureSimpleHTTPServer</span>
+    <a href="/">Home</a>
+    <a href="/about">About</a>
+    <a href="/blog/">Blog</a>
+    <a href="/api/">API</a>
+    <a href="/docs/">Docs</a>
+    <button id="theme-toggle">Dark mode</button>
+  </nav>
+
+  <main>
+    <div class="breadcrumb">
+      <a href="/">Home</a>
+      <span><a href="/blog/">Blog</a></span>
+      <span>Advanced Tips &amp; Tricks</span>
+    </div>
+
+    <h1>Advanced Tips &amp; Tricks</h1>
+    <p class="meta" style="color:var(--text-muted);font-size:.9rem;">Published 2026-03-05</p>
+
+    <p>
+      Once you are comfortable serving files and writing rewrite rules, there are several
+      techniques that can dramatically improve performance, developer experience, and
+      operational resilience. This post covers the most impactful ones.
+    </p>
+
+    <h2>Running multiple instances for staging and production</h2>
+    <p>
+      Because PureSimpleHTTPServer is a single stateless binary with no shared process
+      registry, you can run as many instances as you like side-by-side — each on its own
+      port and serving its own root directory:
+    </p>
+    <pre><code># Production — port 8080, compressed production build
+./PureSimpleHTTPServer --port 8080 --root ./dist --log ./logs/prod.log &
+
+# Staging — port 8081, uncompressed staging build
+./PureSimpleHTTPServer --port 8081 --root ./dist-staging --log ./logs/staging.log &
+
+# Local preview of a feature branch
+./PureSimpleHTTPServer --port 9000 --root ./feature-branch/dist &</code></pre>
+    <p>
+      Each process writes its own access log and maintains its own PID file
+      (<code>--pid-file</code>), making it straightforward to manage them with a process
+      supervisor such as <code>systemd</code>, <code>supervisord</code>, or <code>launchd</code>.
+    </p>
+
+    <h2>Log rotation with SIGHUP</h2>
+    <p>
+      PureSimpleHTTPServer reopens its log file when it receives <code>SIGHUP</code>. This
+      integrates cleanly with <code>logrotate</code>: after rotating the file, send the
+      signal and the server will start writing to the new path without dropping a single
+      request.
+    </p>
+    <pre><code># /etc/logrotate.d/pshs
+/var/log/pshs/access.log {
+    daily
+    rotate 14
+    compress
+    missingok
+    notifempty
+    postrotate
+        kill -HUP $(cat /run/pshs.pid)
+    endscript
+}</code></pre>
+    <p>
+      Pass the PID file path to the server at startup with <code>--pid-file /run/pshs.pid</code>
+      so the <code>postrotate</code> script can find it. The <code>--log-keep</code> and
+      <code>--log-size</code> flags provide a simpler built-in rotation option if you prefer
+      not to use <code>logrotate</code>.
+    </p>
+
+    <h2>Embedding assets at compile time</h2>
+    <p>
+      For truly single-file deployment — useful for distributing demo tools or internal
+      utilities — you can embed your entire <code>wwwroot</code> into the binary at compile
+      time using PureBasic's <code>IncludeBinary</code> and a small bundler script. The
+      server then extracts the virtual file system into a temporary directory on first run
+      and serves from there.
+    </p>
+    <pre><code># Bundle step (run once at build time)
+./tools/bundle-wwwroot --input ./wwwroot --output ./src/EmbeddedAssets.pb
+
+# Compile with embedded assets
+pbcompiler PureSimpleHTTPServer.pb --embedded</code></pre>
+    <p>
+      The resulting binary carries every HTML, CSS, JS, and image file inside it. Users
+      download one file, run it, and get the full experience — no separate asset archive
+      required. This is how the demo site you are reading right now is distributed.
+    </p>
+
+    <h2>SPA mode for React, Vue, and Angular</h2>
+    <p>
+      Single-page applications manage routing entirely in the browser. When a user bookmarks
+      <code>/dashboard/settings</code> and navigates directly to it, the server must return
+      <code>index.html</code> rather than a 404. Enable SPA mode with one flag:
+    </p>
+    <pre><code>./PureSimpleHTTPServer --port 3000 --root ./dist --spa</code></pre>
+    <p>
+      In SPA mode, any path that does not match a real file or a <code>rewrite.conf</code>
+      rule falls through to <code>index.html</code> at the root. Static assets
+      (<code>.js</code>, <code>.css</code>, <code>.png</code>, etc.) are still served
+      normally — only unknown paths get the SPA fallback.
+    </p>
+    <p>
+      You can combine <code>--spa</code> with <code>rewrite.conf</code> rules; explicit
+      rewrites are evaluated first. A common pattern is to use rewrites for versioned API
+      paths and let SPA mode catch everything else:
+    </p>
+    <pre><code># wwwroot/rewrite.conf
+rewrite /api/users    /api/v1/users.json
+rewrite /api/products /api/v1/products.json
+# All other unknown paths fall through to index.html (SPA mode)</code></pre>
+
+    <h2>Performance — what to expect</h2>
+    <p>
+      PureSimpleHTTPServer is built on PureBasic's native socket library with a
+      multi-threaded connection handler. On a modern laptop (Apple M3, macOS Sequoia),
+      a <code>wrk</code> load test against a small cached HTML file gives:
+    </p>
+    <div class="card-grid">
+      <div class="card">
+        <h3>30,000 req/s</h3>
+        <p>Peak throughput serving a 4 KB HTML file over localhost with 12 concurrent connections.</p>
+      </div>
+      <div class="card">
+        <h3>279 MB/s</h3>
+        <p>Aggregate transfer rate on the same benchmark — effectively limited by the loopback interface.</p>
+      </div>
+      <div class="card">
+        <h3>&lt; 3 ms</h3>
+        <p>Median latency under load. The 99th-percentile stays below 8 ms on an unloaded machine.</p>
+      </div>
+    </div>
+    <p>
+      For the vast majority of development and lightweight production workloads, raw
+      throughput is not the bottleneck — it is network bandwidth and the size of your assets.
+      Pre-compressing assets with <code>gzip -k</code> and serving <code>.gz</code> sidecars
+      is the single most effective optimisation you can make.
+    </p>
+
+    <h2>Security — hidden paths and running behind nginx</h2>
+    <p>
+      PureSimpleHTTPServer automatically blocks requests that contain path traversal sequences
+      (<code>../</code>) or that target hidden files and directories (names beginning with
+      <code>.</code>). This means <code>.git/</code>, <code>.env</code>, and similar sensitive
+      paths return 403 rather than leaking content.
+    </p>
+    <p>
+      For production HTTPS deployments, the recommended approach is to run
+      PureSimpleHTTPServer on a non-public port (e.g., <code>127.0.0.1:8080</code>) and
+      place nginx in front of it to handle TLS termination:
+    </p>
+    <pre><code># nginx snippet — /etc/nginx/sites-available/mysite
+server {
+    listen 443 ssl http2;
+    server_name mysite.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/mysite.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mysite.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}</code></pre>
+    <p>
+      This pattern gives you TLS, HTTP/2, and nginx's mature security hardening while keeping
+      PureSimpleHTTPServer focused on what it does best: serving static files at high speed.
+    </p>
+    <p>
+      For the full list of CLI flags and their defaults, see the
+      <a href="/docs/cli-reference/">CLI Reference</a>.
+    </p>
+  </main>
+
+  <footer>
+    PureSimpleHTTPServer v1.5.0 &mdash; Built with PureBasic
+  </footer>
+
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

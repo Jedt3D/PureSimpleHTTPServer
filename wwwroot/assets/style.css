@@ -1,0 +1,218 @@
+/* PureSimpleHTTPServer — Demo Site Styles
+   Supports light (default) and dark themes via [data-theme="dark"] on <html>.
+   ---------------------------------------------------------------- */
+
+/* ── Custom properties ─────────────────────────────────────────── */
+:root {
+  --bg:          #f8f9fa;
+  --surface:     #ffffff;
+  --border:      #dee2e6;
+  --text:        #212529;
+  --text-muted:  #6c757d;
+  --accent:      #0d6efd;
+  --accent-hover:#0a58ca;
+  --code-bg:     #f1f3f5;
+  --code-text:   #c7254e;
+  --nav-bg:      #1a1d23;
+  --nav-text:    #e9ecef;
+  --nav-active:  #4dabf7;
+  --footer-bg:   #1a1d23;
+  --footer-text: #adb5bd;
+  --shadow:      0 2px 8px rgba(0,0,0,.08);
+  --radius:      6px;
+  --transition:  .2s ease;
+}
+
+[data-theme="dark"] {
+  --bg:          #121417;
+  --surface:     #1e2126;
+  --border:      #343a40;
+  --text:        #e9ecef;
+  --text-muted:  #868e96;
+  --accent:      #4dabf7;
+  --accent-hover:#74c0fc;
+  --code-bg:     #282c34;
+  --code-text:   #ff8787;
+  --shadow:      0 2px 8px rgba(0,0,0,.4);
+}
+
+/* ── Reset & base ────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  background: var(--bg);
+  color: var(--text);
+  transition: background var(--transition), color var(--transition);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+img { max-width: 100%; }
+
+/* ── Typography ─────────────────────────────────────────────── */
+h1, h2, h3, h4 {
+  margin-top: 1.5em;
+  margin-bottom: .5em;
+  line-height: 1.25;
+  font-weight: 600;
+}
+h1 { font-size: 2rem; margin-top: .5em; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1.2rem; }
+p  { margin: 0 0 1em; }
+
+/* ── Nav ────────────────────────────────────────────────────── */
+nav {
+  background: var(--nav-bg);
+  padding: .75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+nav .brand {
+  font-weight: 700;
+  color: #fff;
+  margin-right: auto;
+  white-space: nowrap;
+}
+nav a {
+  color: var(--nav-text);
+  font-size: .9rem;
+  transition: color var(--transition);
+}
+nav a:hover, nav a.active { color: var(--nav-active); text-decoration: none; }
+#theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--nav-text);
+  cursor: pointer;
+  border-radius: var(--radius);
+  padding: .25rem .6rem;
+  font-size: .8rem;
+  transition: border-color var(--transition), color var(--transition);
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+main {
+  max-width: 900px;
+  margin: 2rem auto;
+  padding: 0 1.5rem;
+}
+
+/* ── Card ────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  margin-bottom: 1.25rem;
+  box-shadow: var(--shadow);
+  transition: box-shadow var(--transition);
+}
+.card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.12); }
+.card h3 { margin-top: 0; }
+.card .meta { font-size: .85rem; color: var(--text-muted); margin-bottom: .5rem; }
+
+/* ── Card grid ───────────────────────────────────────────────── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.25rem;
+}
+
+/* ── Code ────────────────────────────────────────────────────── */
+code {
+  background: var(--code-bg);
+  color: var(--code-text);
+  padding: .15em .35em;
+  border-radius: 3px;
+  font-family: "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: .875em;
+}
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  position: relative;
+}
+pre code {
+  background: none;
+  color: var(--text);
+  padding: 0;
+  font-size: .875rem;
+}
+pre .copy-btn {
+  position: absolute;
+  top: .5rem;
+  right: .5rem;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: .2rem .55rem;
+  font-size: .75rem;
+  cursor: pointer;
+  opacity: .75;
+  transition: opacity var(--transition);
+}
+pre .copy-btn:hover { opacity: 1; }
+
+/* ── Table ────────────────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; margin-bottom: 1em; }
+th, td { text-align: left; padding: .55rem .75rem; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; background: var(--code-bg); }
+
+/* ── Breadcrumb ──────────────────────────────────────────────── */
+.breadcrumb { font-size: .85rem; color: var(--text-muted); margin-bottom: 1rem; }
+.breadcrumb a { color: var(--text-muted); }
+.breadcrumb span::before { content: " › "; }
+
+/* ── Badge ────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 20px;
+  padding: .2rem .65rem;
+  font-size: .75rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+/* ── Feature list ────────────────────────────────────────────── */
+.feature-list { list-style: none; padding: 0; }
+.feature-list li { padding: .35rem 0; }
+.feature-list li::before { content: "✓ "; color: #40c057; font-weight: 700; }
+
+/* ── Two-column docs grid ────────────────────────────────────── */
+.docs-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+@media (max-width: 600px) { .docs-grid { grid-template-columns: 1fr; } }
+.docs-section h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin-bottom: .75rem; }
+.docs-section ul { list-style: none; padding: 0; margin: 0; }
+.docs-section li { padding: .4rem 0; border-bottom: 1px solid var(--border); }
+.docs-section li:last-child { border-bottom: none; }
+.docs-section li a { font-weight: 500; }
+.docs-section li small { display: block; color: var(--text-muted); font-size: .82rem; }
+
+/* ── Footer ───────────────────────────────────────────────────── */
+footer {
+  background: var(--footer-bg);
+  color: var(--footer-text);
+  text-align: center;
+  padding: 1.25rem;
+  font-size: .85rem;
+  margin-top: 3rem;
+}
+footer a { color: var(--footer-text); text-decoration: underline; }
