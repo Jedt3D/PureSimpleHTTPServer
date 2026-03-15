@@ -12,7 +12,7 @@
 ; - Silent installation support
 
 !define APP_NAME "PureSimpleHTTPServer"
-!define APP_VERSION "1.5.0"
+!define APP_VERSION "1.6.1"
 !define APP_PUBLISHER "PureSimpleHTTPServer"
 !define APP_URL "https://github.com/woraj/PureSimpleHTTPServer"
 !define APP_EXE "PureSimpleHTTPServer.exe"
