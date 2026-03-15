@@ -1,0 +1,201 @@
+================================================================================
+PureSimpleHTTPServer - Changelog
+================================================================================
+
+All notable changes to PureSimpleHTTPServer are documented here.
+
+Format: vX.Y.Z — YYYY-MM-DD HH:MM
+
+--------------------------------------------------------------------------------
+v1.5.0 — 2026-03-15 04:30
+--------------------------------------------------------------------------------
+
+Phase G — URL Rewriting and Redirecting
+
+ADDED:
+- src/RewriteEngine.pbi (new) — URL rewrite and redirect engine
+  * InitRewriteEngine() / CleanupRewriteEngine() — lifecycle management
+  * LoadGlobalRules(path.s) — load/reload global rules from rewrite.conf
+  * ApplyRewrites(path, docRoot, *result) — apply global and per-directory rules
+  * Rule types: rewrite (internal path rewrite) and redir (HTTP redirect)
+  * Pattern types: exact (/path), glob (/prefix/* with placeholders), regex
+  * Per-directory rules: rewrite.conf in any served directory, auto-reloaded
+  * Limits: 64 global rules, 8 cached directories, 16 rules/directory
+- --rewrite FILE CLI flag — path to global rewrite.conf
+- --clean-urls CLI flag — extensionless paths try .html fallback
+- docs/URL_REWRITE.md — reference documentation for rewrite rule syntax
+
+TESTS:
+- 108 unit tests across 12 files; all pass
+- tests/test_rewrite.pb (new) — 22 unit tests for rewrite engine
+
+--------------------------------------------------------------------------------
+v1.4.0 — 2026-03-15 06:00
+--------------------------------------------------------------------------------
+
+Phase F-4 — SIGHUP Log Reopen for logrotate Integration
+
+ADDED:
+- src/SignalHandler.pbi (new) — POSIX signal handler for SIGHUP
+  * SIGHUPHandler(signum.i) — async-signal-safe handler
+  * InstallSignalHandlers() — installs SIGHUP handler
+  * RemoveSignalHandlers() — restores default handler at shutdown
+  * Windows stubs (no-ops) for cross-platform compatibility
+- src/Logger.pbi — ReopenLogs() function for logrotate integration
+
+CHANGED:
+- src/main.pb — Install/RemoveSignalHandlers() called during lifecycle
+
+TESTS:
+- 86 unit tests across 11 files; all pass
+
+--------------------------------------------------------------------------------
+v1.3.0 — 2026-03-15 05:00
+--------------------------------------------------------------------------------
+
+Phase F-3 — Daily Midnight UTC Rotation + PID File
+
+ADDED:
+- src/Logger.pbi
+  * LogRotationThread(*unused) — background thread for daily rotation
+  * StartDailyRotation() — creates the rotation thread
+  * StopDailyRotation() — stops the rotation thread safely
+- src/main.pb
+  * PID detection for macOS/Linux
+  * PID file support via --pid-file FILE
+  * Daily rotation at midnight UTC
+
+TESTS:
+- 84 unit tests across 11 files; all pass
+
+--------------------------------------------------------------------------------
+v1.2.0 — 2026-03-15 04:00
+--------------------------------------------------------------------------------
+
+Phase F-2 — Size-Based Log Rotation with Archive Naming + Keep-Count
+
+ADDED:
+- src/Logger.pbi
+  * RotateLog() — performs size-based rotation with archive naming
+  * Archive naming: access.log.1, access.log.2, ..., access.log.N
+  * Old archives pruned to keep --log-keep N most recent
+
+CHANGED:
+- Default log size limit: 100 MB
+- Default keep count: 30 archived logs
+
+TESTS:
+- 82 unit tests across 11 files; all pass
+
+--------------------------------------------------------------------------------
+v1.1.0 — 2026-03-15 03:00
+--------------------------------------------------------------------------------
+
+Phase F-1 — Apache Combined Log Format, Error Log, Log Level Filtering
+
+ADDED:
+- src/Logger.pbi (new) — access and error logging system
+  * LogAccess() — Apache Combined Log Format with IP, method, path, status
+  * LogError() — error log with level filtering (none/error/warn/info)
+  * OpenLogFile() / OpenErrorLog() — file open/create
+  * CloseLogFile() / CloseErrorLog() — cleanup
+- --log FILE — enable access logging
+- --error-log FILE — enable error logging
+- --log-level LEVEL — set error log threshold
+
+CHANGED:
+- All HTTP responses now logged to access log
+
+TESTS:
+- 80 unit tests across 11 files; all pass
+
+--------------------------------------------------------------------------------
+v1.0.3 — 2026-03-15 02:00
+--------------------------------------------------------------------------------
+
+Phase E — Thread-Per-Connection, Access Log, Full CLI
+
+ADDED:
+- Thread-per-connection model for concurrent request handling
+- Full command-line interface with --port, --root, --browse, --spa
+- Configuration system in Config.pbi
+
+CHANGED:
+- Single-threaded model replaced with multi-threaded model
+- CLI flags now use --flag syntax
+
+TESTS:
+- 78 unit tests across 10 files; all pass
+
+--------------------------------------------------------------------------------
+v0.4.0 — 2026-03-15 01:00
+--------------------------------------------------------------------------------
+
+Phase D — Embedded Assets
+
+ADDED:
+- src/EmbeddedAssets.pbi (new) — in-memory asset serving
+  * OpenEmbeddedPack() — open ZIP pack from memory
+  * ServeEmbeddedFile() — serve files from embedded pack
+  * CloseEmbeddedPack() — cleanup
+- Support for IncludeBinary + CatchPack
+
+TESTS:
+- 75 unit tests across 10 files; all pass
+
+--------------------------------------------------------------------------------
+v0.3.0 — 2026-03-15 00:00
+--------------------------------------------------------------------------------
+
+Phase C — Directory Listing, SPA Fallback, Range Requests
+
+ADDED:
+- src/DirectoryListing.pbi (new) — HTML directory listing
+  * GenerateDirectoryListing() — generate HTML for directories
+- src/RangeParser.pbi (new) — HTTP Range header support
+  * ParseRangeHeader() — parse Range: bytes=X-Y header
+  * 206 Partial Content responses
+- SPA fallback via --spa flag
+
+TESTS:
+- 70 unit tests across 9 files; all pass
+
+--------------------------------------------------------------------------------
+v0.2.0 — 2026-03-14 23:00
+--------------------------------------------------------------------------------
+
+Phase B — Static File Serving from Disk
+
+ADDED:
+- src/FileServer.pbi (new) — static file serving
+  * ServeFile() — serve files from disk with proper headers
+- src/MimeTypes.pbi (new) — MIME type detection
+  * GetMimeType() — detect MIME type from file extension
+- src/HttpResponse.pbi (new) — HTTP response builder
+  * SendTextResponse() — send text responses
+  * SendFileResponse() — send file responses
+
+TESTS:
+- 60 unit tests across 7 files; all pass
+
+--------------------------------------------------------------------------------
+v0.1.0 — 2026-03-14 22:00
+--------------------------------------------------------------------------------
+
+Phase A — TCP Server + HTTP/1.1 Parser + Response Builder
+
+ADDED:
+- src/TcpServer.pbi (new) — TCP server
+  * StartServer() — start TCP server on port
+  * StopServer() — stop TCP server
+- src/HttpParser.pbi (new) — HTTP/1.1 parser
+  * ParseHttpRequest() — parse HTTP request
+- Basic HTTP/1.1 request/response handling
+
+TESTS:
+- 40 unit tests across 5 files; all pass
+
+================================================================================
+For the latest version and updates, visit:
+https://github.com/woraj/PureSimpleHTTPServer
+================================================================================

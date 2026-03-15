@@ -1,0 +1,267 @@
+================================================================================
+PureSimpleHTTPServer v1.5.0 - Quick Start Guide
+================================================================================
+
+Welcome to PureSimpleHTTPServer! This guide will help you get started quickly.
+
+
+GETTING STARTED
+================================================================================
+
+1. Double-click PureSimpleHTTPServer.exe to start the server
+
+2. Open your web browser to: http://localhost:8080
+
+3. The server will serve files from the wwwroot directory
+
+That's it! You're now serving static files.
+
+
+COMMON EXAMPLES
+================================================================================
+
+Example 1: Start on port 8080 serving wwwroot
+------------------------------------------------
+PureSimpleHTTPServer.exe
+
+
+Example 2: Start on port 3000 serving C:\MyWebsite
+---------------------------------------------------
+PureSimpleHTTPServer.exe --port 3000 --root C:\MyWebsite
+
+
+Example 3: Start with directory browsing and access logging
+-----------------------------------------------------------
+PureSimpleHTTPServer.exe --browse --log access.log
+
+
+Example 4: Start as a Single Page Application server
+----------------------------------------------------
+PureSimpleHTTPServer.exe --spa --root C:\MyReactApp
+
+
+Example 5: Start with clean URLs and custom port
+------------------------------------------------
+PureSimpleHTTPServer.exe --port 80 --clean-urls
+
+
+COMMAND-LINE OPTIONS REFERENCE
+================================================================================
+
+Basic Options:
+--------------
+--port N           Set port number (default: 8080)
+--root DIR         Set web root directory (default: wwwroot)
+--help             Show all available options
+
+Directory & File Serving:
+-------------------------
+--browse           Enable directory listing (shows file index)
+--spa              Enable Single Page Application mode
+--clean-urls       Enable clean URLs (/page serves /page.html)
+
+Logging:
+--------
+--log FILE         Enable access log to FILE (Apache Combined format)
+--error-log FILE   Enable error log to FILE
+--log-level LEVEL  Set error log level:
+                   0 = none
+                   1 = error only
+                   2 = warnings and errors (default)
+                   3 = info, warnings, and errors
+                   4 = debug, info, warnings, and errors
+
+Log Rotation:
+-------------
+--log-size MB      Rotate log when it exceeds MB (default: 100)
+                   Set to 0 to disable size-based rotation
+--log-keep N       Max rotated archive files to keep (default: 30)
+--no-log-daily     Disable daily log rotation at midnight
+
+Process Control:
+----------------
+--pid-file FILE    Write process ID to FILE at startup
+                   (Unix/Linux/macOS only)
+
+URL Rewriting:
+--------------
+--rewrite FILE     Load rewrite rules from FILE
+                   See docs/URL_REWRITE.md for syntax
+
+
+STOPPING THE SERVER
+================================================================================
+
+Press Ctrl+C in the console window to stop the server gracefully.
+
+The server will:
+1. Stop accepting new connections
+2. Complete active requests
+3. Close log files
+4. Clean up resources
+5. Exit
+
+
+WEB ROOT DIRECTORY
+================================================================================
+
+The default web root is the "wwwroot" directory next to the executable.
+
+Place your HTML, CSS, JavaScript, images, and other static files in wwwroot.
+
+Example directory structure:
+  wwwroot/
+    index.html
+    about.html
+    css/
+      style.css
+    js/
+      app.js
+    images/
+      logo.png
+
+
+DIRECTORY BROWSING
+================================================================================
+
+Enable directory browsing with the --browse flag:
+
+  PureSimpleHTTPServer.exe --browse
+
+This will show a file listing when accessing directories without index.html.
+
+
+SINGLE PAGE APPLICATION MODE
+================================================================================
+
+Enable SPA mode with the --spa flag:
+
+  PureSimpleHTTPServer.exe --spa
+
+In SPA mode, all requests that would result in 404 are redirected to
+index.html. This is useful for React, Vue, Angular, and other SPAs.
+
+
+CLEAN URLs
+================================================================================
+
+Enable clean URLs with the --clean-urls flag:
+
+  PureSimpleHTTPServer.exe --clean-urls
+
+With clean URLs enabled:
+  /about      serves /about.html
+  /contact    serves /contact.html
+
+This works for extensionless paths, automatically trying .html extension.
+
+
+ACCESS LOGGING
+================================================================================
+
+Enable access logging with the --log flag:
+
+  PureSimpleHTTPServer.exe --log access.log
+
+The log file uses Apache Combined Log Format:
+  127.0.0.1 - - [15/Mar/2026:12:34:56 +0000] "GET /index.html HTTP/1.1" 200 1234 "http://example.com" "Mozilla/5.0"
+
+ERROR LOGGING
+================================================================================
+
+Enable error logging with the --error-log flag:
+
+  PureSimpleHTTPServer.exe --error-log error.log
+
+Set log level with --log-level:
+  PureSimpleHTTPServer.exe --error-log error.log --log-level 3
+
+Log levels:
+  0 = none      (no error logging)
+  1 = error     (errors only)
+  2 = warn      (warnings and errors) - DEFAULT
+  3 = info      (info, warnings, and errors)
+  4 = debug     (everything including debug messages)
+
+
+LOG ROTATION
+================================================================================
+
+The server supports both size-based and time-based log rotation:
+
+Size-based rotation (default):
+  --log-size 100    -- Rotate log when it exceeds 100 MB
+  --log-keep 30     -- Keep 30 archived logs
+
+Time-based rotation (automatic):
+  Logs are rotated daily at midnight UTC
+
+Disable size-based rotation:
+  --log-size 0
+
+Disable daily rotation:
+  --no-log-daily
+
+
+URL REWRITING
+================================================================================
+
+URL rewriting allows you to rewrite or redirect URLs based on patterns:
+
+1. Create a file named rewrite.conf
+2. Add rewrite rules (one per line):
+
+   # Rewrite /api/old to /api/new
+   rewrite /api/old /api/new
+
+   # Redirect old blog to new blog
+   redir /blog/* https://newblog.com/{path} 301
+
+3. Start server with rewrite rules:
+
+   PureSimpleHTTPServer.exe --rewrite rewrite.conf
+
+For detailed syntax, see docs/URL_REWRITE.md
+
+
+TROUBLESHOOTING
+================================================================================
+
+Problem: Port already in use
+Solution: Use a different port with --port flag
+  PureSimpleHTTPServer.exe --port 3000
+
+Problem: Access denied
+Solution: Run as administrator if using privileged ports (< 1024)
+
+Problem: Files not found
+Solution: Check --root path and ensure files exist in wwwroot
+
+Problem: 403 Forbidden
+Solution: Check file permissions and ensure .htaccess/.git/.env are not blocked
+
+
+SUPPORT
+================================================================================
+
+GitHub: https://github.com/woraj/PureSimpleHTTPServer
+
+For detailed documentation:
+- See README.txt for complete documentation
+- See CHANGELOG.txt for version history
+- See LICENSE.txt for license information
+
+
+LICENSE
+================================================================================
+
+MIT License - See LICENSE.txt for details
+
+
+ENJOY!
+================================================================================
+
+Thank you for using PureSimpleHTTPServer!
+
+For updates, bug reports, and feature requests, visit:
+https://github.com/woraj/PureSimpleHTTPServer

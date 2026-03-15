@@ -19,6 +19,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | F-3 | v1.3.0 | Daily midnight UTC rotation thread + PID file | ✅ Done |
 | F-4 | v1.4.0 | SIGHUP log reopen for logrotate integration | ✅ Done |
 | G   | v1.5.0 | URL rewriting and redirecting (`rewrite.conf`, `--clean-urls`) | ✅ Done |
+| A & C | v1.6.0 | **Windows Build & Packaging, Windows Service Integration** | ✅ Done |
 
 ## Build
 
@@ -56,6 +57,78 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 | `--clean-urls` | Serve `/page.html` when `/page` is requested |
 | `--rewrite FILE` | Load URL rewrite/redirect rules from FILE (see `docs/URL_REWRITE.md`) |
 
+**Windows Service flags (Windows only):**
+| `--install` | Install as Windows service (requires Administrator) |
+| `--uninstall` | Uninstall Windows service (requires Administrator) |
+| `--start` | Start Windows service |
+| `--stop` | Stop Windows service |
+| `--service` | Run as Windows service (called by Service Control Manager) |
+| `--service-name NAME` | Custom service name (default: "PureSimpleHTTPServer") |
+
+## Windows Deployment
+
+### Windows Installer
+
+PureSimpleHTTPServer includes a professional Windows installer with:
+- GUI installer with license agreement
+- Optional Windows Service installation
+- Start Menu & Desktop shortcuts
+- Automatic uninstaller
+- Silent installation support
+
+Download `PureSimpleHTTPServer-{version}-windows-setup.exe` and run the installer.
+
+### Portable Version
+
+A portable ZIP package is available for Windows - no installation required:
+- Download `PureSimpleHTTPServer-{version}-windows-portable.zip`
+- Extract to any directory
+- Run `PureSimpleHTTPServer.exe`
+
+### Windows Service
+
+Run PureSimpleHTTPServer as a native Windows service:
+
+```bash
+# Install service (requires Administrator)
+PureSimpleHTTPServer.exe --install
+
+# Start service
+net start PureSimpleHTTPServer
+
+# Stop service
+net stop PureSimpleHTTPServer
+
+# Uninstall service
+PureSimpleHTTPServer.exe --uninstall
+```
+
+Service features:
+- Automatic startup on boot (if configured)
+- Runs in background without console window
+- Integrated with Windows Event Log
+- Graceful shutdown on system shutdown
+- Full Service Control Manager integration
+
+### Building on Windows
+
+Automated build scripts are included for Windows:
+
+```bash
+# Build executable
+build.bat
+
+# Create installer and portable package
+package.bat
+
+# Verify build
+verify_build.bat
+```
+
+Requirements:
+- PureBasic 6.x compiler
+- NSIS (for installer creation)
+
 ## Features
 
 - HTTP/1.1 static file serving with `Content-Type`, `ETag`, `Last-Modified`
@@ -72,6 +145,9 @@ pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 - URL rewriting and redirecting via `rewrite.conf` (exact, glob, regex patterns; `{path}`, `{file}`, `{dir}`, `{re.N}` placeholders)
 - Per-directory rewrite rules (`rewrite.conf` in any served directory, auto-reloaded on change)
 - Clean URLs (`--clean-urls`: `/page` → `/page.html`)
+- **Windows Service support** (Windows only) — Run as native Windows service with Event Log integration
+- **Professional Windows installer** — GUI installer with service installation, shortcuts, and uninstaller
+- **Portable Windows package** — No installation required
 
 ## Testing
 

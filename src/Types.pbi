@@ -52,4 +52,7 @@ Structure ServerConfig
   ; --- G: URL rewriting ---
   CleanUrls.i        ; #True: try path.html when extensionless path not found
   RewriteFile.s      ; Path to global rewrite.conf ("" to disable)
+  ; --- Phase C: Windows Service ---
+  ServiceMode.i      ; #True: run as Windows service (Windows only)
+  ServiceName.s      ; Service name (default: "PureSimpleHTTPServer")
 EndStructure

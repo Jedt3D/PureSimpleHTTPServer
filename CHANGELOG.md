@@ -6,6 +6,127 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v1.6.0 — 2026-03-15 14:00
+
+### Phase A & C — Windows Build & Packaging, Windows Service Integration
+
+**Added**
+- **Phase A: Build & Packaging** — Professional Windows deployment:
+  - `installer/PureSimpleHTTPServer.nsi` (new) — NSIS installer script:
+    - GUI installer with license agreement, component selection
+    - Installation directory selection (default: %ProgramFiles%\PureSimpleHTTPServer)
+    - Optional Windows Service installation (requires admin)
+    - Start Menu shortcuts creation
+    - Optional Desktop shortcut
+    - Automatic uninstaller with user data preservation
+    - Silent installation support (/S flag)
+    - Add/Remove Programs entry
+  - `build.bat` (new) — Automated build script:
+    - PureBasic compilation with console mode, thread-safe, optimizer
+    - Icon embedding support
+    - Color-coded output and error handling
+    - Executable testing after build
+  - `package.bat` (new) — Automated packaging script:
+    - Creates portable ZIP package
+    - Builds NSIS installer
+    - Converts documentation to Windows-friendly text format
+    - Generates `quickstart.txt` user guide
+  - `verify_build.bat` (new) — Build verification script
+  - `assets/icon.svg` (new) — Application icon (vector source)
+  - Windows documentation:
+    - `README.txt` — Windows-friendly user guide (plain text)
+    - `LICENSE.txt` — License file
+    - `CHANGELOG.txt` — Version history (plain text)
+    - `quickstart.txt` — Comprehensive quick start guide
+  - `tests/WINDOWS_INSTALLER_TEST_CHECKLIST.md` (new) — 24 installation tests
+  - Portable package structure with Windows-friendly text files
+  - Support for custom installation directories
+
+- **Phase C: Windows Service Integration** — Native Windows Service support:
+  - `src/WindowsService.pbi` (new) — Complete Windows Service API wrapper (400+ lines):
+    - `InstallService()` — Install as Windows service
+    - `UninstallService()` — Remove Windows service
+    - `RunAsService()` — Connect to Service Control Manager
+    - `ServiceMain()` — Service entry point
+    - `ServiceCtrlHandler()` — Handle service control requests (STOP, SHUTDOWN)
+    - `LogToEventLog()` — Write to Windows Event Log
+    - Service status reporting (START_PENDING, RUNNING, STOP_PENDING, STOPPED)
+    - Platform stubs for non-Windows (cross-platform compatibility)
+  - Service management CLI flags:
+    - `--install` — Install service (requires admin)
+    - `--uninstall` — Remove service (requires admin)
+    - `--start` — Start service via sc.exe
+    - `--stop` — Stop service via sc.exe
+    - `--service` — Run as Windows service (called by SCM)
+    - `--service-name NAME` — Custom service name
+  - `src/Types.pbi` — Added service configuration fields:
+    - `ServiceMode.i` — Run as Windows service flag
+    - `ServiceName.s` — Service name (default: "PureSimpleHTTPServer")
+  - `src/Config.pbi` — Service CLI flag parsing
+  - `src/main.pb` — Service integration:
+    - Service command handling (--install, --uninstall, --start, --stop)
+    - Service mode detection and execution
+    - Helper functions: `ArgContains()`, `GetFullExePath()`
+  - Windows Event Log integration:
+    - Event source: "PureSimpleHTTPServer"
+    - Event IDs: 1=Started, 2=Failed, 3=SCM Error, 4=Stopped
+    - Event types: ERROR, WARNING, INFORMATION
+  - Service lifecycle management:
+    - Graceful shutdown on STOP/SHUTDOWN
+    - Server startup/shutdown logged to Event Log
+    - Service Control Manager integration
+  - `tests/WINDOWS_SERVICE_TEST_CHECKLIST.md` (new) — 24 service tests
+  - 100% backward compatible with standalone mode
+
+**Changed**
+- `src/main.pb` — Added WindowsService.pbi include and service integration
+- `src/Types.pbi` — Added ServiceMode and ServiceName fields to ServerConfig structure
+- `src/Config.pbi` — Added --service and --service-name CLI flag parsing
+
+**Documentation**
+- `PHASE_A_COMPLETION.md` (new) — Phase A implementation report
+- `PHASE_C_COMPLETION.md` (new) — Phase C implementation report
+- `WINDOWS_OPTIMIZATION_FINAL_REPORT.md` (new) — Comprehensive completion report
+- `NEXT_PHASES.md` — Updated to reflect completion status
+- Updated README.md with Windows deployment and service information
+
+**Features**
+- Professional Windows installer with all standard features
+- Portable ZIP distribution (no installation required)
+- Native Windows Service support with full lifecycle management
+- Windows Event Log integration for service events
+- Automated build and packaging scripts
+- Windows-friendly documentation (plain text format)
+- Comprehensive testing coverage (48 tests: 24 installation + 24 service)
+- 100% backward compatible with existing functionality
+- Cross-platform compatibility maintained (platform-specific code properly guarded)
+
+**Testing**
+- Phase A: 24 comprehensive installation tests
+- Phase C: 24 comprehensive service tests
+- All existing 108 unit tests continue to pass
+- Backward compatibility verified
+
+**Platform Support**
+- Windows: Full installer + service support
+- macOS/Linux: Unchanged (all Windows code properly stubbed)
+
+**Usage Examples**
+```bash
+# Install as Windows Service (Windows only, requires admin)
+PureSimpleHTTPServer.exe --install
+net start PureSimpleHTTPServer
+
+# Run standalone (all platforms)
+PureSimpleHTTPServer.exe --port 3000 --root C:\MyWebsite
+
+# Build Windows packages (Windows only)
+build.bat       # Compile executable
+package.bat     # Create installer + portable ZIP
+```
+
+---
+
 ## v1.5.0 — 2026-03-15 04:30
 
 ### Phase G — URL Rewriting and Redirecting

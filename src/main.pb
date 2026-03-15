@@ -2,6 +2,7 @@
 ; Phase F-1: Apache Combined Log Format, error log, log level filtering
 ; Phase F-3: Daily rotation thread, PID file
 ; Phase G:   URL rewriting (Caddy-compatible rewrite.conf, --clean-urls)
+; Phase C:   Windows Service integration (service mode, install/uninstall)
 ;
 ; Compile as console app (thread-safe mode required):
 ;   pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
@@ -12,7 +13,14 @@
 ;                          [--log-size MB] [--log-keep N] [--no-log-daily]
 ;                          [--pid-file FILE]
 ;                          [--clean-urls] [--rewrite FILE]
+;                          [--service] [--service-name NAME]
 ;   ./PureSimpleHTTPServer [port]     (legacy: bare port number, default 8080)
+;
+; Service Management (Windows only, requires admin):
+;   ./PureSimpleHTTPServer --install          Install as Windows service
+;   ./PureSimpleHTTPServer --uninstall        Uninstall Windows service
+;   ./PureSimpleHTTPServer --start            Start the service
+;   ./PureSimpleHTTPServer --stop             Stop the service
 EnableExplicit
 
 ; Platform-specific: get current process ID for PID file and error log [pid N] field
@@ -38,6 +46,7 @@ XIncludeFile "EmbeddedAssets.pbi"
 XIncludeFile "Config.pbi"
 XIncludeFile "RewriteEngine.pbi"
 XIncludeFile "SignalHandler.pbi"
+XIncludeFile "WindowsService.pbi"
 
 ; g_Config — server configuration (global so HandleRequest can access it)
 Global g_Config.ServerConfig
@@ -96,9 +105,117 @@ Procedure.i HandleRequest(connection.i, raw.s)
   ProcedureReturn #False
 EndProcedure
 
+; Helper: Check if a command-line argument exists
+Procedure.i ArgContains(arg.s)
+  Protected i.i, count.i = CountProgramParameters()
+  For i = 0 To count - 1
+    If ProgramParameter(i) = arg
+      ProcedureReturn #True
+    EndIf
+  Next
+  ProcedureReturn #False
+EndProcedure
+
+; Helper: Get full path to current executable
+Procedure.s GetFullExePath()
+  ProcedurePath GetPathPart(ProgramFilename())
+EndProcedure
+
 ; Application entry point
 Procedure Main()
   LoadDefaults(@g_Config)
+
+  If Not ParseCLI(@g_Config)
+    PrintN("ERROR: Invalid command-line arguments")
+    PrintN("Usage: PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa]")
+    PrintN("                            [--log FILE] [--error-log FILE] [--log-level LEVEL]")
+    PrintN("                            [--log-size MB] [--log-keep N] [--no-log-daily]")
+    PrintN("                            [--pid-file FILE]")
+    PrintN("                            [--clean-urls] [--rewrite FILE]")
+    PrintN("                            [--service] [--service-name NAME]")
+    PrintN("Service Management (Windows only):")
+    PrintN("                            --install [--service-name NAME]")
+    PrintN("                            --uninstall [--service-name NAME]")
+    PrintN("                            --start [--service-name NAME]")
+    PrintN("                            --stop [--service-name NAME]")
+    End 1
+  EndIf
+
+  ; Handle Windows Service installation commands (Windows only)
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    If ArgContains("--install")
+      Protected binaryPath.s = GetFullExePath()
+      Protected serviceName.s = g_Config\ServiceName
+
+      If Not InstallService(serviceName, "PureSimple HTTP Server", binaryPath, "Lightweight HTTP/1.1 static file server")
+        PrintN("ERROR: Failed to install service")
+        PrintN("       Make sure you are running as Administrator")
+        End 1
+      EndIf
+
+      PrintN("Service installed successfully: " + serviceName)
+      PrintN("")
+      PrintN("Start the service with:")
+      PrintN("  net start " + serviceName)
+      PrintN("  Or: PureSimpleHTTPServer.exe --start")
+      PrintN("")
+      PrintN("Stop the service with:")
+      PrintN("  net stop " + serviceName)
+      PrintN("  Or: PureSimpleHTTPServer.exe --stop")
+      PrintN("")
+      PrintN("Uninstall the service with:")
+      PrintN("  PureSimpleHTTPServer.exe --uninstall")
+      End 0
+    EndIf
+
+    If ArgContains("--uninstall")
+      Protected serviceName.s = g_Config\ServiceName
+
+      If Not UninstallService(serviceName)
+        PrintN("ERROR: Failed to uninstall service: " + serviceName)
+        PrintN("       Make sure you are running as Administrator")
+        End 1
+      EndIf
+
+      PrintN("Service uninstalled successfully: " + serviceName)
+      End 0
+    EndIf
+
+    If ArgContains("--start")
+      Protected serviceName.s = g_Config\ServiceName
+
+      PrintN("Starting service: " + serviceName)
+      PrintN("")
+
+      RunProgram("sc.exe", "start " + serviceName, "", #PB_Program_Wait)
+      End 0
+    EndIf
+
+    If ArgContains("--stop")
+      Protected serviceName.s = g_Config\ServiceName
+
+      PrintN("Stopping service: " + serviceName)
+      PrintN("")
+
+      RunProgram("sc.exe", "stop " + serviceName, "", #PB_Program_Wait)
+      End 0
+    EndIf
+  CompilerEndIf
+
+  ; Service mode detection
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    If g_Config\ServiceMode
+      PrintN("Starting as Windows Service...")
+      PrintN("Service name: " + g_Config\ServiceName)
+      PrintN("")
+
+      ; Run as Windows service (never returns until service stops)
+      RunAsService()
+      End 0  ; Should never reach here
+    EndIf
+  CompilerEndIf
+
+  ; Continue with standalone mode...
 
   If Not ParseCLI(@g_Config)
     PrintN("ERROR: Invalid command-line arguments")

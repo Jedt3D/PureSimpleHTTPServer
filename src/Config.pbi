@@ -5,11 +5,13 @@
 ; Phase F-1: new flags --error-log, --log-level, --log-size, --log-keep,
 ;            --no-log-daily, --pid-file added alongside existing Phase E flags
 ; Phase G:   new flags --clean-urls, --rewrite FILE
+; Phase C:   new flags --service, --service-name (Windows service mode)
 ;
 ; Flags: --port N   --root DIR   --browse   --spa   --log FILE
 ;        --error-log FILE   --log-level LEVEL   --log-size MB
 ;        --log-keep N       --no-log-daily       --pid-file FILE
 ;        --clean-urls       --rewrite FILE
+;        --service          --service-name NAME
 ; Also accepts a bare port number for backward compatibility (e.g. "8080")
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi
 
@@ -33,6 +35,9 @@ Procedure LoadDefaults(*cfg.ServerConfig)
   ; G: URL rewriting defaults
   *cfg\CleanUrls      = #False
   *cfg\RewriteFile    = ""
+  ; Phase C: Windows Service defaults
+  *cfg\ServiceMode    = #False
+  *cfg\ServiceName    = "PureSimpleHTTPServer"
 EndProcedure
 
 ; ParseLogLevel(s.s) — convert level name to integer (0 if unrecognized)
@@ -121,6 +126,14 @@ Procedure.i ParseCLI(*cfg.ServerConfig)
       i + 1
       If i >= count : ProcedureReturn #False : EndIf
       *cfg\RewriteFile = ProgramParameter(i)
+
+    ElseIf param = "--service"
+      *cfg\ServiceMode = #True
+
+    ElseIf param = "--service-name"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\ServiceName = ProgramParameter(i)
 
     ElseIf Val(param) > 0
       ; Legacy: bare port number (e.g. "8080")
