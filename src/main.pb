@@ -118,11 +118,14 @@ EndProcedure
 
 ; Helper: Get full path to current executable
 Procedure.s GetFullExePath()
-  ProcedurePath GetPathPart(ProgramFilename())
+  ProcedureReturn GetPathPart(ProgramFilename())
 EndProcedure
 
 ; Application entry point
 Procedure Main()
+  Protected serviceName.s
+  Protected binaryPath.s
+
   LoadDefaults(@g_Config)
 
   If Not ParseCLI(@g_Config)
@@ -144,8 +147,8 @@ Procedure Main()
   ; Handle Windows Service installation commands (Windows only)
   CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     If ArgContains("--install")
-      Protected binaryPath.s = GetFullExePath()
-      Protected serviceName.s = g_Config\ServiceName
+      binaryPath = GetFullExePath()
+      serviceName = g_Config\ServiceName
 
       If Not InstallService(serviceName, "PureSimple HTTP Server", binaryPath, "Lightweight HTTP/1.1 static file server")
         PrintN("ERROR: Failed to install service")
@@ -169,7 +172,7 @@ Procedure Main()
     EndIf
 
     If ArgContains("--uninstall")
-      Protected serviceName.s = g_Config\ServiceName
+      serviceName = g_Config\ServiceName
 
       If Not UninstallService(serviceName)
         PrintN("ERROR: Failed to uninstall service: " + serviceName)
@@ -182,7 +185,7 @@ Procedure Main()
     EndIf
 
     If ArgContains("--start")
-      Protected serviceName.s = g_Config\ServiceName
+      serviceName = g_Config\ServiceName
 
       PrintN("Starting service: " + serviceName)
       PrintN("")
@@ -192,7 +195,7 @@ Procedure Main()
     EndIf
 
     If ArgContains("--stop")
-      Protected serviceName.s = g_Config\ServiceName
+      serviceName = g_Config\ServiceName
 
       PrintN("Stopping service: " + serviceName)
       PrintN("")

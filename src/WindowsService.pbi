@@ -91,31 +91,31 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
   #USER_OBJECT_NAME             = $3
   #USER_OBJECT_TYPE             = $5
 
-  ; Service Manager access rights
-  #SC_MANAGER_CONNECT            = $1
-  #SC_MANAGER_CREATE_SERVICE     = $2
-  #SC_MANAGER_ENUMERATE_SERVICE  = $4
-  #SC_MANAGER_LOCK               = $8
-  #SC_MANAGER_QUERY_LOCK_STATUS  = $10
-  #SC_MANAGER_MODIFY_BOOT_CONFIG = $20
-  #SC_MANAGER_ALL_ACCESS         = $F003F
+  ; Service Manager access rights (PureBasic provides these)
+  ; #SC_MANAGER_CONNECT            = $1
+  ; #SC_MANAGER_CREATE_SERVICE     = $2
+  ; #SC_MANAGER_ENUMERATE_SERVICE  = $4
+  ; #SC_MANAGER_LOCK               = $8
+  ; #SC_MANAGER_QUERY_LOCK_STATUS  = $10
+  ; #SC_MANAGER_MODIFY_BOOT_CONFIG = $20
+  ; #SC_MANAGER_ALL_ACCESS         = $F003F
 
 CompilerEndIf
 
 ; ============================================================================
-; Service Status Structure
+; Service Status Structure (PureBasic provides this)
 ; ============================================================================
 CompilerIf #PB_Compiler_OS = #PB_OS_Windows
 
-  Structure SERVICE_STATUS
-    dwServiceType.l
-    dwCurrentState.l
-    dwControlsAccepted.l
-    dwWin32ExitCode.l
-    dwServiceSpecificExitCode.l
-    dwCheckPoint.l
-    dwWaitHint.l
-  EndStructure
+  ; Structure SERVICE_STATUS
+  ;   dwServiceType.l
+  ;   dwCurrentState.l
+  ;   dwControlsAccepted.l
+  ;   dwWin32ExitCode.l
+  ;   dwServiceSpecificExitCode.l
+  ;   dwCheckPoint.l
+  ;   dwWaitHint.l
+  ; EndStructure
 
 CompilerEndIf
 
@@ -131,15 +131,15 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
 CompilerEndIf
 
 ; ============================================================================
-; External Service Procedures (must be defined in main.pb)
+; External Service Procedures (defined in TcpServer.pbi)
 ; ============================================================================
 
-; These procedures must exist in main.pb:
+; These procedures are defined in TcpServer.pbi:
 ;   - StopServer() : Stops the TCP server
 ;   - StartServer(port.i) : Starts the TCP server on specified port
 
-Declare.d StopServer()
-Declare.i StartServer(port.i)
+; Forward declaration for LogToEventLog (defined later in this file)
+Declare LogToEventLog(eventID.i, eventType.i, message.s)
 
 ; ============================================================================
 ; Windows Service API Imports
@@ -169,6 +169,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     RegisterEventSourceA.l(lpUNCServerName.p-ascii, lpSourceName.p-ascii)
     ReportEventA.l(hEventLog.l, wType.l, wCategory.l, dwEventID.l, lpUserSid.l, wNumStrings.l, dwDataSize.l, *lpStrings, *lpRawData)
     DeregisterEventSource.l(hEventLog.l)
+    ; Service dispatcher (for RunAsService)
+    StartServiceCtrlDispatcherA.l(*lpServiceTable)
   EndImport
 
 CompilerEndIf
@@ -196,7 +198,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected result.i = #False
 
     ; Open Service Control Manager
-    hSCM = OpenSCManagerA(#Null, #Null, #SC_MANAGER_CREATE_SERVICE)
+    hSCM = OpenSCManagerA(#Null$, #Null$, #SC_MANAGER_CREATE_SERVICE)
     If hSCM = 0
       ProcedureReturn #False
     EndIf
@@ -210,11 +212,11 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
                               #SERVICE_DEMAND_START,
                               #SERVICE_ERROR_NORMAL,
                               binaryPath,
-                              #Null,    ; Load order group
-                              #Null,    ; Tag ID
-                              #Null,    ; Dependencies
-                              #Null,    ; Service start name (LocalSystem)
-                              #Null)    ; Password
+                              #Null$,    ; Load order group
+                              #Null,     ; Tag ID (pointer to DWORD)
+                              #Null$,    ; Dependencies
+                              #Null$,    ; Service start name (LocalSystem)
+                              #Null$)    ; Password
 
     If hService
       ; Set service description (requires additional API call, simplified here)
@@ -248,7 +250,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected result.i = #False
 
     ; Open Service Control Manager
-    hSCM = OpenSCManagerA(#Null, #Null, #SC_MANAGER_CONNECT)
+    hSCM = OpenSCManagerA(#Null$, #Null$, #SC_MANAGER_CONNECT)
     If hSCM = 0
       ProcedureReturn #False
     EndIf
@@ -388,24 +390,19 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Connect PureSimpleHTTPServer to the Service Control Manager
     ; This procedure never returns (until service is stopped)
 
-    ; Import StartServiceCtrlDispatcherA
-    ImportC "advapi32.lib"
-      StartServiceCtrlDispatcherA.l(*lpServiceTable)
-    EndImport
-
-    ; Service table entry structure
-    Structure SERVICE_TABLE_ENTRY
-      *lpServiceName
-      *lpServiceProc
-    EndStructure
+    ; Service table entry structure (PureBasic provides this)
+    ; Structure SERVICE_TABLE_ENTRY
+    ;   *lpServiceName
+    ;   *lpServiceProc
+    ; EndStructure
 
     ; Define service table
-    Protected serviceTable.SERVICE_TABLE_ENTRY[1]
+    Dim serviceTable.SERVICE_TABLE_ENTRY(1)
 
-    serviceTable[0]\lpServiceName = @"PureSimpleHTTPServer"
-    serviceTable[0]\lpServiceProc = @ServiceMain()
-    serviceTable[1]\lpServiceName = #Null
-    serviceTable[1]\lpServiceProc = #Null
+    serviceTable(0)\lpServiceName = @"PureSimpleHTTPServer"
+    serviceTable(0)\lpServiceProc = @ServiceMain()
+    serviceTable(1)\lpServiceName = #Null
+    serviceTable(1)\lpServiceProc = #Null
 
     ; Start service control dispatcher
     If Not StartServiceCtrlDispatcherA(@serviceTable())
@@ -439,7 +436,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     Protected hEventLog.l
     Protected *msgPtr
 
-    hEventLog = RegisterEventSourceA(#Null, "PureSimpleHTTPServer")
+    hEventLog = RegisterEventSourceA(#Null$, "PureSimpleHTTPServer")
     If hEventLog
       *msgPtr = @message
       ReportEventA(hEventLog, eventType, 0, eventID, #Null, 1, 0, @*msgPtr, #Null)

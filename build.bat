@@ -69,18 +69,18 @@ echo %INFO%Compiling...%RESET%
 echo.
 
 REM Compiler flags:
-REM   -cl        : Console application
-REM   -t         : Thread-safe mode (required for networking)
-REM   -z         : Enable optimizer
-REM   -o         : Output filename
-REM   -n         : Icon file (if exists)
+REM   /CONSOLE   : Console application
+REM   /THREAD    : Thread-safe mode (required for networking)
+REM   /OPTIMIZER : Enable optimizer
+REM   /OUTPUT    : Output filename
+REM   /ICON      : Icon file (if exists)
 set "ICON_FLAG="
 if exist "assets\icon.ico" (
-    set "ICON_FLAG=--n "assets\icon.ico""
+    set "ICON_FLAG=/ICON "assets\icon.ico""
     echo %INFO%Using icon: assets\icon.ico%RESET%
 )
 
-"%PB_COMPILER%" -cl -t -z -o "%OUTPUT_DIR%\%EXE_NAME%" %ICON_FLAG% %SOURCE_FILE%
+"%PB_COMPILER%" /CONSOLE /THREAD /OPTIMIZER /OUTPUT "%OUTPUT_DIR%\%EXE_NAME%" %ICON_FLAG% %SOURCE_FILE%
 
 if errorlevel 1 (
     echo.
