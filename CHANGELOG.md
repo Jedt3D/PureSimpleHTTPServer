@@ -127,6 +127,51 @@ package.bat     # Create installer + portable ZIP
 
 ---
 
+## v1.6.1 — 2026-03-15 15:30
+
+### Bug Fixes — wwwroot Navigation and Rewrite Rules
+
+**Fixed**
+- **wwwroot gitlink issue** — Converted wwwroot from git submodule (gitlink) to regular tracked directory:
+  - Removed git submodule reference (mode 160000)
+  - Added all wwwroot content as regular files
+  - Prevents future issues with submodule synchronization
+- **wwwroot/index.html navigation** — Enhanced and fixed navigation links:
+  - Added navigation cards for all subdirectories: About, API, Blog, Documentation
+  - Fixed /blog/ link to work properly with rewrite rules
+  - Removed non-functional /assets/ and /figma-plugin/ links
+- **Blog rewrite rules** — Fixed critical index file serving issue:
+  - Problem: `/blog/*` wildcard pattern caught directory requests, preventing index.html from loading
+  - Solution: Added explicit index rules BEFORE catch-all wildcard in `wwwroot/blog/rewrite.conf`
+  - Pattern: `rewrite /blog/ /blog/index.html` then `rewrite /blog/* /blog/posts/{path}.html`
+  - Rules evaluated in order; first match wins
+
+**Changed**
+- `wwwroot/index.html` — Removed broken links, fixed /blog/ navigation
+- `wwwroot/blog/rewrite.conf` — Added explicit index file handling with warning comments
+- `wwwroot/rewrite.conf` — Added educational warning comments about wildcard patterns
+
+**Documentation**
+- `docs/URL_REWRITE.md` — Added **"⚠️ CRITICAL: Rewrite Rules and Index Files"** section:
+  - Explains request processing pipeline (rewrites → index lookup → clean URLs → SPA fallback)
+  - Documents common pitfall with wildcard patterns catching directories
+  - Provides best practices for rewrite rule ordering
+  - Includes real-world examples and comparison table
+  - Shows wrong vs correct pattern configurations
+- `wwwroot/rewrite.conf` — Added warning comments and educational examples
+- `wwwroot/blog/rewrite.conf` — Added critical warning with reference to documentation
+
+**Impact**
+- `/blog/` now serves index.html correctly instead of returning 404
+- Blog posts still rewrite properly (`/blog/hello-world` → `posts/hello-world.html`)
+- All wwwroot content now tracked as regular git files (not submodule)
+- Users can reference documentation to avoid similar issues with their own rewrite rules
+
+**Technical Details**
+The issue occurred because rewrite rules are evaluated **before** the server checks for index files. The wildcard pattern `/blog/*` matched the directory request `/blog/` with an empty capture, rewriting it to `/blog/posts/.html` which doesn't exist, causing a 404. The fix adds explicit rules that match `/blog/` and `/blog/index.html` before the wildcard, ensuring the index file is served.
+
+---
+
 ## v1.5.0 — 2026-03-15 04:30
 
 ### Phase G — URL Rewriting and Redirecting
