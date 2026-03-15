@@ -20,6 +20,7 @@ A simple, single-binary HTTP/1.1 static file server written in PureBasic.
 | F-4 | v1.4.0 | SIGHUP log reopen for logrotate integration | ✅ Done |
 | G   | v1.5.0 | URL rewriting and redirecting (`rewrite.conf`, `--clean-urls`) | ✅ Done |
 | A & C | v1.6.0 | **Windows Build & Packaging, Windows Service Integration** | ✅ Done |
+| — | v1.6.1 | **Bug fixes: wwwroot navigation, rewrite rule index handling** | ✅ Done |
 
 ## Build
 
