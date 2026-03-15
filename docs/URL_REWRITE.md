@@ -100,3 +100,105 @@ Per-directory rule files are cached in memory and automatically reloaded when th
 ## Integration with `--clean-urls`
 
 Rewrite rules are applied **before** the clean-URL extension lookup. A rewrite to `/page` will then benefit from the `.html` extension fallback if the file `/page` does not exist but `/page.html` does.
+
+---
+
+## ⚠️ CRITICAL: Rewrite Rules and Index Files
+
+### The Problem
+
+**Rewrite rules are evaluated BEFORE the server checks for index files.**
+
+PureSimpleHTTPServer has built-in support for serving index files (`index.html`, `index.htm`) when a directory is requested. However, rewrite rules take priority in the request processing pipeline:
+
+```
+Request received
+    ↓
+1. ApplyRewrites() ← Rewrite rules evaluated HERE
+    ↓
+2. ServeFile()     ← Index file check happens HERE
+```
+
+### Common Pitfall
+
+**Incorrect configuration** — This will break directory index pages:
+
+```conf
+# ❌ BROKEN: Catch-all catches everything, including index requests
+rewrite /blog/* /blog/posts/{path}.html
+```
+
+**What happens:**
+- Request: `/blog/`
+- Rewrite rule matches: `/blog/*` captures empty `*`
+- Path becomes: `/blog/posts/.html` ❌ (doesn't exist)
+- Result: **404 Not Found**
+
+### The Solution
+
+**Correct configuration** — Add explicit index rules BEFORE the catch-all:
+
+```conf
+# ✅ CORRECT: Explicit rules first, catch-all last
+
+# Serve directory index page explicitly
+rewrite /blog/ /blog/index.html
+rewrite /blog/index.html /blog/index.html
+
+# Rewrite blog post slugs to the posts/ directory
+rewrite /blog/* /blog/posts/{path}.html
+```
+
+**Rules are evaluated in order; first match wins:**
+- `/blog/` → matches line 1 → serves `blog/index.html` ✅
+- `/blog/index.html` → matches line 2 → serves `blog/index.html` ✅
+- `/blog/hello-world` → skips to line 4 → serves `posts/hello-world.html` ✅
+
+### Real-World Example
+
+**wwwroot/blog/rewrite.conf** — Proper index file handling:
+
+```conf
+# Per-directory rewrite rules for /blog/
+# Rules evaluated in order; first match wins.
+
+# IMPORTANT: Explicit index rules must come BEFORE wildcard patterns
+rewrite /blog/ /blog/index.html
+rewrite /blog/index.html /blog/index.html
+rewrite /blog/index.htm /blog/index.htm
+
+# Rewrite blog post slugs to the posts/ subdirectory
+# Example: /blog/hello-world → /blog/posts/hello-world.html
+rewrite /blog/* /blog/posts/{path}.html
+```
+
+### Best Practices
+
+1. **Always list specific paths before wildcards** — More specific patterns should come first
+2. **Explicitly handle index files** — If using wildcards that match directories, add explicit index rules
+3. **Test with trailing slashes** — Test both `/dir` and `/dir/` to ensure both work
+4. **Use per-directory rules for subdirectory rewrites** — This keeps rules scoped to their relevant paths
+
+### Request Processing Order
+
+For reference, here's the complete request processing pipeline in PureSimpleHTTPServer:
+
+1. **Parse HTTP request** (main.pb line 65)
+2. **Apply rewrite/redirect rules** (main.pb line 76) ← **Rewrites happen here**
+3. **Try embedded assets** (main.pb line 94)
+4. **Serve file from disk** (main.pb line 98)
+   - Check if path is a directory
+   - **Resolve index file** (FileServer.pbi line 122) ← **Index check happens here**
+   - Generate directory listing (if `--browse` enabled)
+5. **Return response**
+
+### Summary
+
+| Feature | Applied When | Priority |
+|---------|--------------|----------|
+| Rewrite rules | **First** (before file serving) | **Highest** |
+| Index file lookup | Second (only for directories) | Medium |
+| Clean URLs (`--clean-urls`) | Third (if rewrite doesn't match) | Low |
+| SPA fallback (`--spa`) | Last (on 404 only) | Lowest |
+
+**Key takeaway:** If your rewrite rules use wildcard patterns (`*`) that could match directory requests, you must explicitly handle index files BEFORE the wildcard rule.
