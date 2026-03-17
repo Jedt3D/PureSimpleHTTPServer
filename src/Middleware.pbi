@@ -1,11 +1,7 @@
-; Middleware.pbi — middleware chain infrastructure
+; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_HandleAll() (monolithic — to be extracted in Phase 2)
-;
-; Phase 1: Single Middleware_HandleAll wraps existing HandleRequest + ServeFile logic.
-;          The chain runner (RunRequest) is the single point of network I/O and memory
-;          cleanup. All 56 existing tests must pass with identical external behavior.
+;           Middleware_Rewrite, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -47,13 +43,41 @@ Procedure.i CallNext(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareCon
   ProcedureReturn handler(*req, *resp, *mCtx)
 EndProcedure
 
-; ────────────────────────────────────────────────────────────────────────────
-; Middleware_HandleAll — monolithic middleware wrapping HandleRequest + ServeFile
-;
-; Phase 1 only: contains all request handling logic. Phase 2 will extract each
-; feature into its own middleware. This procedure writes to ResponseBuffer
-; instead of calling SendNetwork* directly.
-; ────────────────────────────────────────────────────────────────────────────
+; ── Extracted Middleware ────────────────────────────────────────────────────
+
+; Middleware_Rewrite — apply URL rewrite/redirect rules
+; Redirect → short-circuit with 3xx. Rewrite → modify req\Path, CallNext.
+Procedure.i Middleware_Rewrite(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected rwResult.RewriteResult
+  Protected qPos.i
+
+  If *req\Method = "GET"
+    If ApplyRewrites(*req\Path, *cfg\RootDirectory, @rwResult)
+      If rwResult\Action = 2   ; redirect
+        *resp\StatusCode = rwResult\RedirCode
+        *resp\Headers    = "Location: " + rwResult\RedirURL + #CRLF$
+        *resp\Body       = 0
+        *resp\BodySize   = 0
+        *resp\Handled    = #True
+        ProcedureReturn #True
+      ElseIf rwResult\Action = 1   ; rewrite — update path
+        qPos = FindString(rwResult\NewPath, "?")
+        If qPos > 0
+          *req\QueryString = Mid(rwResult\NewPath, qPos + 1)
+          *req\Path        = Left(rwResult\NewPath, qPos - 1)
+        Else
+          *req\Path = rwResult\NewPath
+        EndIf
+      EndIf
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
+; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
+
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
   Protected urlPath.s, docRoot.s, indexList.s
@@ -61,33 +85,11 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
   Protected *buffer, file.i
   Protected rangeHeader.s, acceptEncoding.s, ifNoneMatch.s
-  Protected rwResult.RewriteResult
-  Protected qPos.i
 
   ; --- Only handle GET requests ---
   If *req\Method <> "GET"
     FillTextResponse(*resp, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
     ProcedureReturn #True
-  EndIf
-
-  ; --- Apply rewrite/redirect rules ---
-  If ApplyRewrites(*req\Path, *cfg\RootDirectory, @rwResult)
-    If rwResult\Action = 2   ; redirect
-      *resp\StatusCode = rwResult\RedirCode
-      *resp\Headers    = "Location: " + rwResult\RedirURL + #CRLF$
-      *resp\Body       = 0
-      *resp\BodySize   = 0
-      *resp\Handled    = #True
-      ProcedureReturn #True
-    ElseIf rwResult\Action = 1   ; rewrite — update path
-      qPos = FindString(rwResult\NewPath, "?")
-      If qPos > 0
-        *req\QueryString = Mid(rwResult\NewPath, qPos + 1)
-        *req\Path        = Left(rwResult\NewPath, qPos - 1)
-      Else
-        *req\Path = rwResult\NewPath
-      EndIf
-    EndIf
   EndIf
 
   ; --- Try embedded assets ---
@@ -106,13 +108,13 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
         *resp\Body       = *packBuf
         *resp\BodySize   = uncompSize
         *resp\Handled    = #True
-        ProcedureReturn #True   ; runner frees *packBuf via resp\Body
+        ProcedureReturn #True
       EndIf
       FreeMemory(*packBuf)
     EndIf
   EndIf
 
-  ; ── File serving (logic from ServeFile, adapted for ResponseBuffer) ──
+  ; ── File serving ──
 
   urlPath   = *req\Path
   docRoot   = *cfg\RootDirectory
@@ -164,7 +166,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- Clean URLs: retry with .html extension ---
+  ; --- Clean URLs ---
   If fileSize < 0 And *cfg\CleanUrls And GetExtensionPart(urlPath) = ""
     Protected cleanFsPath.s = fsPath + ".html"
     If FileSize(cleanFsPath) >= 0
@@ -220,14 +222,14 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
           *resp\Body       = *buffer
           *resp\BodySize   = gzSize
           *resp\Handled    = #True
-          ProcedureReturn #True   ; runner frees *buffer via resp\Body
+          ProcedureReturn #True
         EndIf
         FreeMemory(*buffer)
       EndIf
     EndIf
   EndIf
 
-  ; --- 304 Not Modified (ETag match) ---
+  ; --- 304 Not Modified ---
   If ifNoneMatch <> "" And ifNoneMatch = etag
     *resp\StatusCode = #HTTP_304
     *resp\Headers    = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=0" + #CRLF$
@@ -237,7 +239,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     ProcedureReturn #True
   EndIf
 
-  ; --- Range request (206 Partial Content) ---
+  ; --- Range request ---
   If rangeHeader <> ""
     Protected range.RangeSpec
     If ParseRangeHeader(rangeHeader, fileSize, @range)
@@ -264,11 +266,9 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
           FreeMemory(*buffer)
         EndIf
       EndIf
-      ; Fall through to error if we couldn't serve the range
       FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
       ProcedureReturn #True
     Else
-      ; 416 Range Not Satisfiable
       *resp\StatusCode = #HTTP_416
       *resp\Headers    = "Content-Range: bytes */" + Str(fileSize) + #CRLF$
       *resp\Body       = 0
@@ -278,7 +278,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- Regular 200 response ---
+  ; --- Regular 200 ---
   *buffer = AllocateMemory(fileSize + 1)
   If *buffer = 0
     LogError("error", "Out of memory serving: " + fsPath)
@@ -307,14 +307,11 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   *resp\Body       = *buffer
   *resp\BodySize   = fileSize
   *resp\Handled    = #True
-  ProcedureReturn #True             ; runner frees *buffer via resp\Body
+  ProcedureReturn #True
 EndProcedure
 
 ; ────────────────────────────────────────────────────────────────────────────
 ; RunRequest — chain runner; the single point of network I/O and memory cleanup
-;
-; Called from each worker thread via RunRequestWrapper (in main.pb).
-; Flow: parse → init buffer → run chain → send → free → log
 ; ────────────────────────────────────────────────────────────────────────────
 Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   Protected req.HttpRequest
@@ -341,7 +338,7 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   resp\Handled    = #False
 
   ; Initialize middleware context
-  mCtx\ChainIndex = -1           ; CallNext increments to 0 on first call
+  mCtx\ChainIndex = -1
   mCtx\Connection = connection
   mCtx\Config     = *cfg
   mCtx\BytesSent  = 0
@@ -357,7 +354,6 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
     EndIf
     mCtx\BytesSent = resp\BodySize
   Else
-    ; No handler matched — 404 fallback
     resp\StatusCode = #HTTP_404
     SendTextResponse(connection, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
   EndIf
@@ -374,8 +370,8 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
 EndProcedure
 
 ; BuildChain() — register middleware in directive order (called once at startup)
-; Phase 1: only Middleware_HandleAll (monolithic wrapper of existing logic)
 Procedure BuildChain()
   g_ChainCount = 0
+  RegisterMiddleware(@Middleware_Rewrite())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
