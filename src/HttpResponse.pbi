@@ -13,6 +13,7 @@ Procedure.s StatusText(code.i)
     Case 302 : ProcedureReturn "Found"
     Case 304 : ProcedureReturn "Not Modified"
     Case 400 : ProcedureReturn "Bad Request"
+    Case 401 : ProcedureReturn "Unauthorized"
     Case 403 : ProcedureReturn "Forbidden"
     Case 404 : ProcedureReturn "Not Found"
     Case 416 : ProcedureReturn "Range Not Satisfiable"

@@ -1,5 +1,5 @@
 ================================================================================
-PureSimpleHTTPServer v2.4.0 - Quick Start Guide
+PureSimpleHTTPServer v2.5.0 - Quick Start Guide
 ================================================================================
 
 Welcome to PureSimpleHTTPServer! This guide will help you get started quickly.
@@ -108,6 +108,9 @@ Security & API:
 --cors             Enable permissive CORS (origin: *)
 --cors-origin URL  Enable CORS restricted to specific origin
 --security-headers Add security headers (nosniff, X-Frame-Options, etc.)
+--error-pages DIR  Serve custom HTML error pages from DIR (e.g., 404.html)
+--basic-auth U:P   HTTP Basic Authentication (USER:PASS) for all requests
+--cache-max-age N  Cache-Control max-age in seconds (default: 0)
 
 
 STOPPING THE SERVER

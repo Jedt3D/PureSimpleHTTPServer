@@ -1,4 +1,4 @@
-# CLI Reference — PureSimpleHTTPServer v2.4.0
+# CLI Reference — PureSimpleHTTPServer v2.5.0
 
 This document describes every command-line flag and the legacy positional argument. Flags may appear in any order and can be freely combined.
 
@@ -37,6 +37,9 @@ This document describes every command-line flag and the legacy positional argume
 | `--cors` | Boolean flag | off | Enable permissive CORS (`Access-Control-Allow-Origin: *`) |
 | `--cors-origin ORIGIN` | String | _(disabled)_ | Enable CORS restricted to a specific origin |
 | `--security-headers` | Boolean flag | off | Add security headers to all responses |
+| `--error-pages DIR` | String | _(disabled)_ | Serve custom HTML error pages from DIR |
+| `--basic-auth USER:PASS` | String | _(disabled)_ | HTTP Basic Authentication for all requests |
+| `--cache-max-age N` | Integer | `0` | Cache-Control max-age in seconds |
 
 **Logging:**
 
@@ -443,6 +446,76 @@ Default is off because users behind a reverse proxy (Caddy, nginx) may already h
 
 ---
 
+### `--error-pages DIR`
+
+**Type:** String (directory path)
+**Default:** disabled
+
+Serve custom HTML error pages from the specified directory. When an error response is generated (403, 404, 500, etc.), the server looks for `{statusCode}.html` in DIR (e.g., `404.html`). If the file exists, its content is served as the error response body with `Content-Type: text/html`. If the file does not exist, the default plain-text error message is used.
+
+```bash
+# Serve custom error pages from an errors/ directory
+./PureSimpleHTTPServer --error-pages ./errors
+
+# Directory structure:
+# errors/
+#   403.html    (custom "Forbidden" page)
+#   404.html    (custom "Not Found" page)
+#   500.html    (custom "Internal Server Error" page)
+
+# Combine with other features
+./PureSimpleHTTPServer --root /var/www --error-pages /var/www/errors --security-headers
+```
+
+---
+
+### `--basic-auth USER:PASS`
+
+**Type:** String (username:password pair)
+**Default:** disabled
+
+Enables HTTP Basic Authentication for all requests. Every request must include a valid `Authorization: Basic <base64>` header matching the configured credentials. Requests without credentials or with incorrect credentials receive a `401 Unauthorized` response with a `WWW-Authenticate: Basic realm="Restricted"` header prompting the browser to show a login dialog.
+
+The password may contain colons — only the first colon separates the username from the password.
+
+```bash
+# Protect the server with basic auth
+./PureSimpleHTTPServer --basic-auth admin:secret123
+
+# Test with curl
+curl -u admin:secret123 http://localhost:8080/
+
+# Password with colon (colon is part of the password)
+./PureSimpleHTTPServer --basic-auth admin:pass:with:colons
+
+# Combine with CORS and security headers
+./PureSimpleHTTPServer --basic-auth admin:secret --cors --security-headers
+```
+
+---
+
+### `--cache-max-age N`
+
+**Type:** Integer (seconds)
+**Default:** `0`
+
+Sets the `Cache-Control: max-age=N` value in seconds for all served responses. The default value of `0` means `Cache-Control: max-age=0`, which instructs browsers and proxies to always revalidate with the server (the ETag/304 mechanism still works for efficient revalidation).
+
+Set a higher value for production deployments where assets are fingerprinted (e.g., `app.abc123.js`) and can be cached aggressively.
+
+```bash
+# Cache assets for 1 hour (3600 seconds)
+./PureSimpleHTTPServer --cache-max-age 3600
+
+# Cache for 1 year (common for fingerprinted assets)
+./PureSimpleHTTPServer --cache-max-age 31536000
+
+# No caching (default behavior, explicit)
+./PureSimpleHTTPServer --cache-max-age 0
+```
+
+---
+
 ## TLS
 
 ### `--tls-cert FILE`
@@ -552,7 +625,8 @@ The following command illustrates a production-like invocation combining multipl
   --clean-urls \
   --rewrite /etc/pshs/rewrite.conf \
   --health /healthz \
-  --security-headers
+  --security-headers \
+  --cache-max-age 3600
 ```
 
 What each flag does in this example:
@@ -571,6 +645,7 @@ What each flag does in this example:
 | `--rewrite /etc/pshs/rewrite.conf` | Apply custom redirect and rewrite rules |
 | `--health /healthz` | Respond to load balancer health probes at `/healthz` |
 | `--security-headers` | Add security headers to all responses |
+| `--cache-max-age 3600` | Cache responses for 1 hour |
 
 A minimal SPA deployment with just the essential flags:
 

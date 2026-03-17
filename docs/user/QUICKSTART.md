@@ -1,4 +1,4 @@
-# Quick Start — PureSimpleHTTPServer v2.4.0
+# Quick Start — PureSimpleHTTPServer v2.5.0
 
 ## What Is PureSimpleHTTPServer?
 
@@ -114,6 +114,47 @@ These five flags cover the most common scenarios. Each is covered in full in the
 # Apply URL rewrite rules
 ./PureSimpleHTTPServer --rewrite ./rewrite.conf
 ```
+
+---
+
+## Protect with Basic Auth
+
+Restrict access to your server with HTTP Basic Authentication:
+
+```bash
+./PureSimpleHTTPServer --basic-auth admin:secret123
+```
+
+All requests require a valid `Authorization` header. Browsers will show a login dialog automatically. Test with curl:
+
+```bash
+curl -u admin:secret123 http://localhost:8080/
+```
+
+---
+
+## Custom Error Pages
+
+Serve branded error pages instead of plain-text defaults:
+
+```bash
+./PureSimpleHTTPServer --error-pages ./errors
+```
+
+Place `404.html`, `403.html`, and `500.html` in the `errors/` directory. When an error occurs, the corresponding HTML file is served automatically. Missing error page files fall back to the default plain-text response.
+
+---
+
+## Cache-Control Headers
+
+Set a `Cache-Control: max-age` value for all responses:
+
+```bash
+# Cache for 1 hour
+./PureSimpleHTTPServer --cache-max-age 3600
+```
+
+The default is `max-age=0` (always revalidate). For fingerprinted assets, use a long max-age value.
 
 ---
 

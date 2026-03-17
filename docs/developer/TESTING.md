@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.4.0 — Testing Guide
+# PureSimpleHTTPServer v2.5.0 — Testing Guide
 
 This document describes how to run the test suite, how to write new tests, and
 the pitfalls specific to PureBasic and the PureUnit framework as used in this
@@ -287,7 +287,7 @@ Helper patterns used in test_middleware.pb:
 
 ## 6. Current Test Files
 
-There are 13 test files with 136 tests covering all modules:
+There are 13 test files with 148 tests covering all modules:
 
 | File | Module(s) tested | Key behaviors |
 |---|---|---|
@@ -303,7 +303,7 @@ There are 13 test files with 136 tests covering all modules:
 | `test_config.pb` | `Config.pbi` | `LoadDefaults` field values, `ParseCLI` crash-safety |
 | `test_logger.pb` | `Logger.pbi` | CLF format, zero-byte dash, level filtering, size rotation, archive naming, keep-count pruning, SIGHUP reopen, daily thread start/stop |
 | `test_rewrite.pb` | `RewriteEngine.pbi` | Exact/glob/regex rewrite and redirect, placeholder substitution, first-rule-wins, per-directory rules, mtime cache, comment/blank-line skipping |
-| `test_middleware.pb` | `Middleware.pbi` | Middleware isolation tests: HiddenPath 403, ETag304 match/miss, IndexFile resolution, CleanUrls fallback, SpaFallback, GzipSidecar, FileServer 200/404, DirectoryListing, Rewrite/redirect, chain ordering, HealthCheck 200/passthrough, Cors preflight/headers, SecurityHeaders append |
+| `test_middleware.pb` | `Middleware.pbi` | Middleware isolation tests: HiddenPath 403, ETag304 match/miss, IndexFile resolution, CleanUrls fallback, SpaFallback, GzipSidecar, FileServer 200/404, DirectoryListing, Rewrite/redirect, chain ordering, HealthCheck 200/passthrough, Cors preflight/headers, SecurityHeaders append, custom error pages (404/403/fallback/disabled), BasicAuth (disabled/no-header/wrong-creds/correct/colon-password), Cache-Control (default/custom/FileServer) |
 
 ---
 

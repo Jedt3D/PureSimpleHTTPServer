@@ -1,9 +1,10 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_HealthCheck, Middleware_IndexFile,
-;           Middleware_CleanUrls, Middleware_SpaFallback, Middleware_HiddenPath,
-;           Middleware_Cors, Middleware_SecurityHeaders, Middleware_ETag304,
+;           FillErrorResponse, Middleware_Rewrite, Middleware_HealthCheck,
+;           Middleware_IndexFile, Middleware_CleanUrls, Middleware_SpaFallback,
+;           Middleware_HiddenPath, Middleware_Cors, Middleware_BasicAuth,
+;           Middleware_SecurityHeaders, Middleware_ETag304,
 ;           Middleware_GzipCompress, Middleware_GzipSidecar,
 ;           Middleware_EmbeddedAssets, Middleware_FileServer,
 ;           Middleware_DirectoryListing, PlainWriter, GzipCompressBuffer
@@ -61,6 +62,36 @@ Procedure.s BuildFsPath(docRoot.s, urlPath.s)
   CompilerElse
     ProcedureReturn docRoot + urlPath
   CompilerEndIf
+EndProcedure
+
+; FillErrorResponse — serve a custom error page (if configured), else fall back to plain text
+Procedure FillErrorResponse(*resp.ResponseBuffer, *cfg.ServerConfig, statusCode.i, fallbackMsg.s)
+  Protected fsPath.s, fileSize.i, *buffer, file.i
+
+  If *cfg\ErrorPagesDir <> ""
+    fsPath = *cfg\ErrorPagesDir + "/" + Str(statusCode) + ".html"
+    fileSize = FileSize(fsPath)
+    If fileSize > 0 And fileSize < 1048576  ; cap at 1 MB
+      *buffer = AllocateMemory(fileSize + 1)
+      If *buffer
+        file = ReadFile(#PB_Any, fsPath)
+        If file
+          ReadData(file, *buffer, fileSize)
+          CloseFile(file)
+          *resp\StatusCode = statusCode
+          *resp\Headers    = "Content-Type: text/html; charset=utf-8" + #CRLF$
+          *resp\Body       = *buffer
+          *resp\BodySize   = fileSize
+          *resp\Handled    = #True
+          ProcedureReturn
+        EndIf
+        FreeMemory(*buffer)
+      EndIf
+    EndIf
+  EndIf
+
+  ; Fallback to plain text
+  FillTextResponse(*resp, statusCode, "text/plain; charset=utf-8", fallbackMsg)
 EndProcedure
 
 ; ── PlainWriter — sends bytes directly to TCP socket ───────────────────────
@@ -262,7 +293,7 @@ Procedure.i Middleware_SpaFallback(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
         *req\Path = "/" + GetFilePart(resolvedPath)
       Else
         LogError("error", "Not found (SPA: no root index): " + *req\Path)
-        FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
+        FillErrorResponse(*resp, *cfg, #HTTP_404, "404 Not Found")
         ProcedureReturn #True
       EndIf
     EndIf
@@ -279,7 +310,7 @@ Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
 
   If *cfg\HiddenPatterns <> "" And IsHiddenPath(*req\Path, *cfg\HiddenPatterns)
     LogError("error", "Forbidden: " + *req\Path)
-    FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+    FillErrorResponse(*resp, *cfg, #HTTP_403, "403 Forbidden")
     ProcedureReturn #True
   EndIf
 
@@ -323,6 +354,43 @@ Procedure.i Middleware_Cors(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Middle
   ProcedureReturn result
 EndProcedure
 
+; ── Basic Auth (short-circuit) ────────────────────────────────────────────
+
+; Middleware_BasicAuth — require HTTP Basic Authentication for all requests
+Procedure.i Middleware_BasicAuth(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+
+  If *cfg\BasicAuthUser = ""
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  Protected authHeader.s = GetHeader(*req\RawHeaders, "Authorization")
+
+  If Left(authHeader, 6) = "Basic "
+    Protected encoded.s = Mid(authHeader, 7)
+    Protected decBufSize.i = Len(encoded) + 1
+    Protected *decBuf = AllocateMemory(decBufSize)
+    If *decBuf
+      Protected decodedLen.i = Base64Decoder(encoded, *decBuf, decBufSize)
+      If decodedLen > 0
+        Protected decoded.s = PeekS(*decBuf, decodedLen, #PB_UTF8)
+        FreeMemory(*decBuf)
+
+        If decoded = *cfg\BasicAuthUser + ":" + *cfg\BasicAuthPass
+          ProcedureReturn CallNext(*req, *resp, *mCtx)
+        EndIf
+      Else
+        FreeMemory(*decBuf)
+      EndIf
+    EndIf
+  EndIf
+
+  ; Auth failed → 401
+  FillErrorResponse(*resp, *cfg, #HTTP_401, "401 Unauthorized")
+  *resp\Headers + "WWW-Authenticate: Basic realm=" + Chr(34) + "Protected" + Chr(34) + #CRLF$
+  ProcedureReturn #True
+EndProcedure
+
 ; ── Security Headers (post-processing) ───────────────────────────────────
 
 ; Middleware_SecurityHeaders — append security headers to handled responses
@@ -356,7 +424,7 @@ Procedure.i Middleware_ETag304(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Mid
     etag   = BuildETag(fsPath)
     If etag <> "" And ifNoneMatch = etag
       *resp\StatusCode = #HTTP_304
-      *resp\Headers    = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=0" + #CRLF$
+      *resp\Headers    = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=" + Str(*cfg\CacheMaxAge) + #CRLF$
       *resp\Body       = 0
       *resp\BodySize   = 0
       *resp\Handled    = #True
@@ -413,7 +481,7 @@ Procedure.i Middleware_GzipSidecar(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
   extraHeaders + "Content-Encoding: "  + "gzip"            + #CRLF$
   extraHeaders + "ETag: "              + etag              + #CRLF$
   extraHeaders + "Last-Modified: "     + HTTPDate(mtime)   + #CRLF$
-  extraHeaders + "Cache-Control: "     + "max-age=0"       + #CRLF$
+  extraHeaders + "Cache-Control: "     + "max-age=" + Str(*cfg\CacheMaxAge) + #CRLF$
   extraHeaders + "Vary: "              + "Accept-Encoding" + #CRLF$
 
   *resp\StatusCode = #HTTP_200
@@ -548,7 +616,7 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
             Protected contentRange.s = "bytes " + Str(range\Start) + "-" + Str(range\End) + "/" + Str(fileSize)
             extraHeaders  = "Content-Type: "  + mimeType       + #CRLF$
             extraHeaders + "Content-Range: "  + contentRange   + #CRLF$
-            extraHeaders + "Cache-Control: "  + "max-age=0"    + #CRLF$
+            extraHeaders + "Cache-Control: "  + "max-age=" + Str(*cfg\CacheMaxAge) + #CRLF$
             *resp\StatusCode = #HTTP_206
             *resp\Headers    = extraHeaders
             *resp\Body       = *buffer
@@ -559,7 +627,7 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
           FreeMemory(*buffer)
         EndIf
       EndIf
-      FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+      FillErrorResponse(*resp, *cfg, #HTTP_500, "500 Internal Server Error")
       ProcedureReturn #True
     Else
       ; 416 Range Not Satisfiable
@@ -576,7 +644,7 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   *buffer = AllocateMemory(fileSize + 1)
   If *buffer = 0
     LogError("error", "Out of memory serving: " + fsPath)
-    FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+    FillErrorResponse(*resp, *cfg, #HTTP_500, "500 Internal Server Error")
     ProcedureReturn #True
   EndIf
 
@@ -584,7 +652,7 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   If file = 0
     FreeMemory(*buffer)
     LogError("error", "Cannot open file: " + fsPath)
-    FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+    FillErrorResponse(*resp, *cfg, #HTTP_500, "500 Internal Server Error")
     ProcedureReturn #True
   EndIf
 
@@ -594,7 +662,7 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   extraHeaders  = "Content-Type: "  + mimeType        + #CRLF$
   extraHeaders + "ETag: "           + etag             + #CRLF$
   extraHeaders + "Last-Modified: "  + HTTPDate(mtime)  + #CRLF$
-  extraHeaders + "Cache-Control: "  + "max-age=0"      + #CRLF$
+  extraHeaders + "Cache-Control: "  + "max-age=" + Str(*cfg\CacheMaxAge) + #CRLF$
 
   *resp\StatusCode = #HTTP_200
   *resp\Headers    = extraHeaders
@@ -620,11 +688,11 @@ Procedure.i Middleware_DirectoryListing(*req.HttpRequest, *resp.ResponseBuffer, 
       ProcedureReturn #True
     EndIf
     LogError("error", "BuildDirectoryListing failed: " + fsPath)
-    FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+    FillErrorResponse(*resp, *cfg, #HTTP_500, "500 Internal Server Error")
     ProcedureReturn #True
   Else
     LogError("warn", "Directory listing disabled: " + *req\Path)
-    FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+    FillErrorResponse(*resp, *cfg, #HTTP_403, "403 Forbidden")
     ProcedureReturn #True
   EndIf
 EndProcedure
@@ -675,21 +743,20 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   ; Run the chain
   CallNext(@req, @resp, @mCtx)
 
-  ; --- Single point of network I/O (via PlainWriter) ---
-  If resp\Handled
-    Protected writer.ResponseWriter
-    InitPlainWriter(@writer, connection)
-    SendNetworkString(connection, BuildResponseHeaders(resp\StatusCode, resp\Headers, resp\BodySize), #PB_Ascii)
-    If resp\Body And resp\BodySize > 0
-      writer\Write(@writer, resp\Body, resp\BodySize)
-    EndIf
-    writer\Flush(@writer)
-    mCtx\BytesSent = resp\BodySize
-  Else
-    ; No handler matched — 404 fallback
-    resp\StatusCode = #HTTP_404
-    SendTextResponse(connection, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
+  ; If no handler matched, fill a 404 error response
+  If Not resp\Handled
+    FillErrorResponse(@resp, *cfg, #HTTP_404, "404 Not Found")
   EndIf
+
+  ; --- Single point of network I/O (via PlainWriter) ---
+  Protected writer.ResponseWriter
+  InitPlainWriter(@writer, connection)
+  SendNetworkString(connection, BuildResponseHeaders(resp\StatusCode, resp\Headers, resp\BodySize), #PB_Ascii)
+  If resp\Body And resp\BodySize > 0
+    writer\Write(@writer, resp\Body, resp\BodySize)
+  EndIf
+  writer\Flush(@writer)
+  mCtx\BytesSent = resp\BodySize
 
   ; --- Single point of memory cleanup ---
   If resp\Body
@@ -717,6 +784,8 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_HiddenPath())
   ; CORS (hybrid: preflight short-circuit + post-processing)
   RegisterMiddleware(@Middleware_Cors())
+  ; Basic auth (short-circuit)
+  RegisterMiddleware(@Middleware_BasicAuth())
   ; Security headers (post-processing)
   RegisterMiddleware(@Middleware_SecurityHeaders())
   ; Conditional response (short-circuit)

@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.4.0 — Extension Guide
+# PureSimpleHTTPServer v2.5.0 — Extension Guide
 
 This document is a developer reference for extending PureSimpleHTTPServer.
 The target audience is PureBasic developers who have the source and want to
@@ -106,6 +106,7 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_SpaFallback())
   RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_Cors())
+  RegisterMiddleware(@Middleware_BasicAuth())
   RegisterMiddleware(@Middleware_SecurityHeaders())
   RegisterMiddleware(@Middleware_RateLimit())       ; ← new
   RegisterMiddleware(@Middleware_ETag304())

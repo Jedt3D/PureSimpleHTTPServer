@@ -12,6 +12,8 @@
 ;                          [--auto-tls DOMAIN]
 ;                          [--health PATH] [--cors] [--cors-origin ORIGIN]
 ;                          [--security-headers]
+;                          [--error-pages DIR] [--basic-auth USER:PASS]
+;                          [--cache-max-age N]
 ;                          [--service] [--service-name NAME]
 ;   ./PureSimpleHTTPServer [port]     (legacy: bare port number, default 8080)
 ;
@@ -93,6 +95,8 @@ Procedure Main()
     PrintN("                            [--auto-tls DOMAIN]")
     PrintN("                            [--health PATH] [--cors] [--cors-origin ORIGIN]")
     PrintN("                            [--security-headers]")
+    PrintN("                            [--error-pages DIR] [--basic-auth USER:PASS]")
+    PrintN("                            [--cache-max-age N]")
     PrintN("                            [--service] [--service-name NAME]")
     End 1
   EndIf
@@ -182,6 +186,10 @@ Procedure Main()
     PrintN("                            [--clean-urls] [--rewrite FILE]")
     PrintN("                            [--tls-cert FILE --tls-key FILE]")
     PrintN("                            [--auto-tls DOMAIN]")
+    PrintN("                            [--health PATH] [--cors] [--cors-origin ORIGIN]")
+    PrintN("                            [--security-headers]")
+    PrintN("                            [--error-pages DIR] [--basic-auth USER:PASS]")
+    PrintN("                            [--cache-max-age N]")
     End 1
   EndIf
 
@@ -354,6 +362,15 @@ Procedure Main()
   EndIf
   If g_Config\SecurityHeaders
     PrintN("Security:   security headers enabled")
+  EndIf
+  If g_Config\ErrorPagesDir <> ""
+    PrintN("Errors:     custom pages from " + g_Config\ErrorPagesDir)
+  EndIf
+  If g_Config\BasicAuthUser <> ""
+    PrintN("Auth:       basic auth enabled (user: " + g_Config\BasicAuthUser + ")")
+  EndIf
+  If g_Config\CacheMaxAge > 0
+    PrintN("Cache:      max-age=" + Str(g_Config\CacheMaxAge))
   EndIf
   PrintN("Press Ctrl+C to stop")
   PrintN("")

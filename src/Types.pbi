@@ -90,4 +90,9 @@ Structure ServerConfig
   CorsEnabled.i      ; #True to enable CORS headers
   CorsOrigin.s       ; Specific CORS origin ("" = use "*" when enabled)
   SecurityHeaders.i  ; #True to add security headers to responses
+  ; --- v2.5.0: custom error pages, basic auth, cache-control ---
+  ErrorPagesDir.s    ; Directory for custom error pages ("" = disabled)
+  BasicAuthUser.s    ; Basic auth username ("" = disabled)
+  BasicAuthPass.s    ; Basic auth password
+  CacheMaxAge.i      ; Cache-Control max-age in seconds (default: 0)
 EndStructure

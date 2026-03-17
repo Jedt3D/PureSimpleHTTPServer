@@ -30,14 +30,17 @@ curl -I http://localhost:8080/
 - Thread-per-connection for concurrent request handling
 
 **Middleware Architecture (v2.0.0+)**
-- 14-stage ordered middleware chain (Rewrite → HealthCheck → IndexFile → CleanUrls → SpaFallback → HiddenPath → Cors → SecurityHeaders → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing)
+- 15-stage ordered middleware chain (Rewrite → HealthCheck → IndexFile → CleanUrls → SpaFallback → HiddenPath → Cors → BasicAuth → SecurityHeaders → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing)
 - Post-processing middleware pattern (GzipCompress, SecurityHeaders, Cors wrap downstream)
 - ResponseWriter abstraction for pluggable body output
 
-**Security & API (v2.4.0+)**
+**Security & API (v2.5.0+)**
 - Health check endpoint (`--health PATH`) for load balancers
 - CORS support (`--cors`, `--cors-origin ORIGIN`) with OPTIONS preflight
 - Security headers (`--security-headers`): X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy, Cross-Origin-Opener-Policy
+- Custom error pages (`--error-pages DIR`) for branded 403/404/500 responses
+- HTTP Basic Authentication (`--basic-auth USER:PASS`) for all requests
+- Configurable Cache-Control headers (`--cache-max-age N`)
 
 **TLS / HTTPS (v2.1.0+)**
 - Manual certificate support (`--tls-cert`, `--tls-key`)
@@ -99,6 +102,9 @@ curl -I http://localhost:8080/
 | `--cors` | off | Enable permissive CORS (`Access-Control-Allow-Origin: *`) |
 | `--cors-origin ORIGIN` | _(disabled)_ | Enable CORS restricted to a specific origin |
 | `--security-headers` | off | Add security headers (nosniff, X-Frame-Options, etc.) |
+| `--error-pages DIR` | _(disabled)_ | Serve custom HTML error pages from DIR (e.g., `404.html`) |
+| `--basic-auth USER:PASS` | _(disabled)_ | HTTP Basic Authentication for all requests |
+| `--cache-max-age N` | `0` | Cache-Control max-age in seconds |
 
 **Logging:**
 
@@ -147,7 +153,7 @@ cd tests
 ./run_tests.sh
 ```
 
-136 unit tests across 13 test files. All tests pass.
+148 unit tests across 13 test files. All tests pass.
 
 ## Architecture
 
@@ -157,8 +163,9 @@ Every HTTP request flows through an ordered middleware chain:
 Client → TCP → RunRequest() → [chain] → send → free → log
 
 Chain:  Rewrite → HealthCheck → IndexFile → CleanUrls → SpaFallback
-        → HiddenPath → Cors → SecurityHeaders → ETag304 → GzipSidecar
-        → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing
+        → HiddenPath → Cors → BasicAuth → SecurityHeaders → ETag304
+        → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer
+        → DirectoryListing
 ```
 
 See [docs/developer-guide.md](docs/developer-guide.md) for the full middleware architecture documentation.

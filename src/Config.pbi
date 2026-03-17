@@ -68,6 +68,11 @@ Procedure LoadDefaults(*cfg.ServerConfig)
   *cfg\CorsEnabled    = #False
   *cfg\CorsOrigin     = ""
   *cfg\SecurityHeaders = #False
+  ; v2.5.0: custom error pages, basic auth, cache-control
+  *cfg\ErrorPagesDir  = ""
+  *cfg\BasicAuthUser  = ""
+  *cfg\BasicAuthPass  = ""
+  *cfg\CacheMaxAge    = 0
 EndProcedure
 
 ; ParseLogLevel(s.s) — convert level name to integer (0 if unrecognized)
@@ -191,6 +196,27 @@ Procedure.i ParseCLI(*cfg.ServerConfig)
 
     ElseIf param = "--security-headers"
       *cfg\SecurityHeaders = #True
+
+    ElseIf param = "--error-pages"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\ErrorPagesDir = ProgramParameter(i)
+
+    ElseIf param = "--basic-auth"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      Protected authVal.s = ProgramParameter(i)
+      Protected colonPos.i = FindString(authVal, ":")
+      If colonPos < 2 : ProcedureReturn #False : EndIf
+      *cfg\BasicAuthUser = Left(authVal, colonPos - 1)
+      *cfg\BasicAuthPass = Mid(authVal, colonPos + 1)
+
+    ElseIf param = "--cache-max-age"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      Protected cacheVal.i = Val(ProgramParameter(i))
+      If cacheVal < 0 : ProcedureReturn #False : EndIf
+      *cfg\CacheMaxAge = cacheVal
 
     ElseIf param = "--service"
       *cfg\ServiceMode = #True

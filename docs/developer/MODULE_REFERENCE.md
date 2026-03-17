@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.4.0 — Module Reference
+# PureSimpleHTTPServer v2.5.0 — Module Reference
 
 This document describes every `.pbi` module in `src/` and the entry-point `main.pb`. For each module the public API (procedures and exported globals), the compile-time dependencies, and notable implementation details are listed.
 
@@ -20,8 +20,8 @@ definitions. No procedures. No globals.
 | Constant | Value | Meaning |
 |---|---|---|
 | `#APP_NAME` | `"PureSimpleHTTPServer"` | Used in `Server:` response header |
-| `#APP_VERSION` | `"2.4.0"` | Used in startup banner |
-| `#HTTP_200` ... `#HTTP_500` | 200-500 | HTTP status code shorthand. `#HTTP_204` (204 No Content) added in v2.4.0 |
+| `#APP_VERSION` | `"2.5.0"` | Used in startup banner |
+| `#HTTP_200` ... `#HTTP_500` | 200-500 | HTTP status code shorthand. `#HTTP_204` (204 No Content) added in v2.4.0, `#HTTP_401` (401 Unauthorized) added in v2.5.0 |
 | `#RECV_BUFFER_SIZE` | 65536 | Per-connection TCP receive buffer (64 KB) |
 | `#SEND_CHUNK_SIZE` | 65536 | File send chunk size (64 KB) |
 | `#MAX_HEADER_SIZE` | 8192 | Maximum accepted request header block (8 KB) |
@@ -130,6 +130,10 @@ Vtable-based writer abstraction for body output.
 | `CorsEnabled` | `.i` | CORS enabled flag (v2.4.0+) |
 | `CorsOrigin` | `.s` | CORS specific origin (v2.4.0+) |
 | `SecurityHeaders` | `.i` | Security headers flag (v2.4.0+) |
+| `ErrorPagesDir` | `.s` | Custom error pages directory (v2.5.0+) |
+| `BasicAuthUser` | `.s` | Basic auth username (v2.5.0+) |
+| `BasicAuthPass` | `.s` | Basic auth password (v2.5.0+) |
+| `CacheMaxAge` | `.i` | Cache-Control max-age in seconds (v2.5.0+) |
 
 ### Dependencies
 
@@ -298,6 +302,7 @@ Recognized flags: `--port`, `--root`, `--browse`, `--spa`, `--log`, `--error-log
 `--log-level`, `--log-size`, `--log-keep`, `--no-log-daily`, `--pid-file`,
 `--clean-urls`, `--rewrite`, `--tls-cert`, `--tls-key`, `--auto-tls`, `--no-gzip`,
 `--health`, `--cors`, `--cors-origin`, `--security-headers`,
+`--error-pages`, `--basic-auth`, `--cache-max-age`,
 `--service`, `--service-name`.
 
 ### Dependencies: `Global.pbi`, `Types.pbi`
@@ -320,14 +325,14 @@ Recognized flags: `--port`, `--root`, `--browse`, `--spa`, `--log`, `--error-log
 
 ## Middleware.pbi (v2.0.0+)
 
-**Purpose:** Middleware chain infrastructure, all 14 middleware, and utility functions.
+**Purpose:** Middleware chain infrastructure, all 15 middleware, and utility functions.
 
 ### Chain Infrastructure
 
 #### `RegisterMiddleware(*handler)` — Add middleware to chain during startup.
 #### `CallNext(*req, *resp, *mCtx) -> .i` — Advance to next middleware.
 #### `RunRequest(connection.i, raw.s, *cfg.ServerConfig) -> .i` — Chain runner: parse → chain → send → free → log.
-#### `BuildChain()` — Register all 14 middleware in directive order.
+#### `BuildChain()` — Register all 15 middleware in directive order.
 
 ### Middleware (in chain order)
 
@@ -338,16 +343,18 @@ Recognized flags: `--port`, `--root`, `--browse`, `--spa`, `--log`, `--error-log
 5. `Middleware_SpaFallback` — 404 → root index for SPAs
 6. `Middleware_HiddenPath` — Block `.git`/`.env` paths (403)
 7. `Middleware_Cors` — CORS preflight (204) and header post-processing
-8. `Middleware_SecurityHeaders` — Append security headers to responses
-9. `Middleware_ETag304` — Return 304 on ETag match
-10. `Middleware_GzipSidecar` — Serve pre-compressed `.gz` files
-11. `Middleware_GzipCompress` — Dynamic gzip compression (post-processing)
-12. `Middleware_EmbeddedAssets` — Serve from in-memory pack
-13. `Middleware_FileServer` — Serve from disk (200 + 206 range)
-14. `Middleware_DirectoryListing` — HTML directory listing
+8. `Middleware_BasicAuth` — HTTP Basic Authentication (401 if invalid/missing)
+9. `Middleware_SecurityHeaders` — Append security headers to responses
+10. `Middleware_ETag304` — Return 304 on ETag match
+11. `Middleware_GzipSidecar` — Serve pre-compressed `.gz` files
+12. `Middleware_GzipCompress` — Dynamic gzip compression (post-processing)
+13. `Middleware_EmbeddedAssets` — Serve from in-memory pack
+14. `Middleware_FileServer` — Serve from disk (200 + 206 range)
+15. `Middleware_DirectoryListing` — HTML directory listing
 
 ### Utility Functions
 
+#### `FillErrorResponse(*resp.ResponseBuffer, statusCode.i, *cfg.ServerConfig)` — Fill response with custom error page from `ErrorPagesDir` or plain-text fallback (v2.5.0+).
 #### `BuildFsPath(docRoot.s, urlPath.s) -> .s` — Build filesystem path from doc root + URL.
 #### `InitPlainWriter(*w.ResponseWriter, connection.i)` — Initialize PlainWriter for TCP output.
 #### `GzipCompressBuffer(*input, inputSize.i, *outSize.Integer) -> .i` — Compress to gzip format. Caller must `FreeMemory()`.

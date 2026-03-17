@@ -6,6 +6,33 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v2.5.0 — 2026-03-18
+
+### Custom Error Pages, Basic Auth, and Cache-Control
+
+**Added**
+- `FillErrorResponse()` helper — serves custom HTML error pages from `--error-pages DIR` with plain-text fallback
+- `Middleware_BasicAuth` — HTTP Basic Authentication middleware (short-circuit after Cors, before SecurityHeaders)
+- `#HTTP_401 = 401` status code in `Global.pbi`; `Case 401 : "Unauthorized"` in `StatusText()`
+- 4 new `ServerConfig` fields: `ErrorPagesDir.s`, `BasicAuthUser.s`, `BasicAuthPass.s`, `CacheMaxAge.i`
+- 3 new CLI flags: `--error-pages DIR`, `--basic-auth USER:PASS`, `--cache-max-age N`
+
+**Changed**
+- 7 error response call sites in Middleware.pbi now use `FillErrorResponse()` instead of `FillTextResponse()`
+- 4 hardcoded `max-age=0` values replaced with configurable `max-age=` + `Str(*cfg\CacheMaxAge)`
+- `RunRequest()` 404 fallback now uses `FillErrorResponse()` and unified PlainWriter path
+- `BuildChain()` registers 15 middleware (was 14): BasicAuth at slot 8
+- Version bumped to `"2.5.0"`
+- 148 unit tests across 13 test files; all pass (was 136)
+
+**Tests**
+- 12 new tests in `test_middleware.pb`:
+  - Custom error pages: custom 404 served, custom 403 via HiddenPath, fallback when file missing, disabled uses plain text
+  - Basic auth: disabled passes through, no header → 401, wrong creds → 401, correct creds pass through, password with colon works
+  - Cache-control: default max-age=0, custom 3600 in ETag304, FileServer uses configured value
+
+---
+
 ## v2.4.0 — 2026-03-17
 
 ### Health Check, CORS, and Security Headers Middleware

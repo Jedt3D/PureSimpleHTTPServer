@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.4.0 — Architecture Reference
+# PureSimpleHTTPServer v2.5.0 — Architecture Reference
 
 > **New to the codebase?** Start with [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md) —
 > a step-by-step tutorial that builds a server from scratch using the same libraries.
@@ -10,7 +10,7 @@ PureSimpleHTTPServer is a single-binary HTTP/1.1 static file server written enti
 Key design properties:
 
 - **Single binary.** No external runtime, no configuration file required.
-- **Middleware chain.** Every request flows through an ordered chain of 14 middleware. Each middleware can pre-process, short-circuit, or post-process the request/response.
+- **Middleware chain.** Every request flows through an ordered chain of 15 middleware. Each middleware can pre-process, short-circuit, or post-process the request/response.
 - **Thread-per-connection.** Each complete HTTP request is handed off to a dedicated OS thread.
 - **C backend.** PureBasic's C backend produces portable C code. This matters for `ImportC ""` blocks used for `getpid()` and `signal()`.
 - **TLS support.** Manual certificates or automatic HTTPS via acme.sh integration.
@@ -56,7 +56,8 @@ main.pb
  |                         CleanupRewriteEngine, GlobalRuleCount)
  |     depends on: Global.pbi, Types.pbi
  +-- Middleware.pbi       (RegisterMiddleware, CallNext, RunRequest, BuildChain,
- |                         all 14 middleware, PlainWriter, GzipCompressBuffer)
+ |                         all 15 middleware, PlainWriter, GzipCompressBuffer,
+ |                         FillErrorResponse)
  |     depends on: Global.pbi, Types.pbi, HttpParser.pbi, HttpResponse.pbi,
  |                 MimeTypes.pbi, DateHelper.pbi, Logger.pbi, FileServer.pbi,
  |                 DirectoryListing.pbi, RangeParser.pbi, EmbeddedAssets.pbi,
@@ -94,13 +95,14 @@ Chain:
   5   Middleware_SpaFallback  Request modifier   Last-resort path rewrite
   6   Middleware_HiddenPath   Access control     Block .git/.env AFTER path finalized
   7   Middleware_Cors         Hybrid             OPTIONS preflight + CORS post-processing
-  8   Middleware_SecHeaders   Post-processing    Append security headers to responses
-  9   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
- 10   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
- 11   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
- 12   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
- 13   Middleware_FileServer   Terminal handler   Read file from disk
- 14   Middleware_DirListing   Terminal handler   Directory listing — last resort
+  8   Middleware_BasicAuth    Short-circuit      Reject unauthenticated requests (401)
+  9   Middleware_SecHeaders   Post-processing    Append security headers to responses
+ 10   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
+ 11   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
+ 12   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+ 13   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+ 14   Middleware_FileServer   Terminal handler   Read file from disk
+ 15   Middleware_DirListing   Terminal handler   Directory listing — last resort
 ```
 
 ### How middleware work

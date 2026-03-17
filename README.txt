@@ -1,5 +1,5 @@
 ================================================================================
-PureSimpleHTTPServer v2.4.0 - Windows Distribution
+PureSimpleHTTPServer v2.5.0 - Windows Distribution
 ================================================================================
 
 A fast, single-binary HTTP/1.1 static file server with middleware architecture,
@@ -65,6 +65,9 @@ Security & API:
   --cors             Enable CORS (Access-Control-Allow-Origin: *)
   --cors-origin URL  Enable CORS restricted to specific origin
   --security-headers Add security headers to all responses
+  --error-pages DIR  Serve custom HTML error pages from DIR (e.g., 404.html)
+  --basic-auth U:P   HTTP Basic Authentication (USER:PASS) for all requests
+  --cache-max-age N  Cache-Control max-age in seconds (default: 0)
 
 Windows Service:
   --install          Install as Windows service (requires Administrator)
@@ -81,7 +84,7 @@ FEATURES
 - HTTP/1.1 static file serving with Content-Type, ETag, Last-Modified
 - 304 Not Modified via If-None-Match
 - 206 Partial Content via Range header
-- Middleware architecture with 14-stage ordered chain
+- Middleware architecture with 15-stage ordered chain
 - HTTPS with manual certificates or automatic via acme.sh
 - Dynamic gzip compression for text, JSON, JS, XML, SVG
 - Pre-compressed .gz sidecar support (Content-Encoding: gzip)
@@ -98,6 +101,9 @@ FEATURES
 - Health check endpoint for load balancer probes (--health PATH)
 - CORS support with OPTIONS preflight (--cors, --cors-origin ORIGIN)
 - Security headers (--security-headers)
+- Custom error pages (--error-pages DIR) for branded 403/404/500 responses
+- HTTP Basic Authentication (--basic-auth USER:PASS)
+- Configurable Cache-Control headers (--cache-max-age N)
 - Native Windows Service support with Event Log integration
 
 

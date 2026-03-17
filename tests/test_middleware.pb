@@ -9,6 +9,7 @@ Global g_MwIndex.s      ; temp index.html for SPA/IndexFile tests
 Global g_MwAbout.s      ; temp about.html for CleanUrls tests
 Global g_MwEtagFile.s   ; temp file for ETag tests
 Global g_MwRuleFile.s   ; temp rewrite.conf
+Global g_ErrPagesDir.s  ; temp error pages directory
 
 ; Helper: initialize a ServerConfig for tests
 Procedure InitTestCfg(*cfg.ServerConfig, root.s)
@@ -22,6 +23,10 @@ Procedure InitTestCfg(*cfg.ServerConfig, root.s)
   *cfg\CorsEnabled    = #False
   *cfg\CorsOrigin     = ""
   *cfg\SecurityHeaders = #False
+  *cfg\ErrorPagesDir  = ""
+  *cfg\BasicAuthUser  = ""
+  *cfg\BasicAuthPass  = ""
+  *cfg\CacheMaxAge    = 0
 EndProcedure
 
 ; Helper: initialize an empty ResponseBuffer
@@ -57,8 +62,10 @@ ProcedureUnitStartup mw_setup()
   g_MwAbout    = g_MwRoot + "about.html"
   g_MwEtagFile = g_MwRoot + "etag_test.txt"
   g_MwRuleFile = GetTemporaryDirectory() + "pshs_mw_rules.conf"
+  g_ErrPagesDir = GetTemporaryDirectory() + "pshs_err_pages/"
 
   CreateDirectory(g_MwRoot)
+  CreateDirectory(g_ErrPagesDir)
 
   f = CreateFile(#PB_Any, g_MwIndex)
   If f : WriteStringN(f, "<html>index</html>") : CloseFile(f) : EndIf
@@ -68,6 +75,13 @@ ProcedureUnitStartup mw_setup()
 
   f = CreateFile(#PB_Any, g_MwEtagFile)
   If f : WriteStringN(f, "etag test content for middleware") : CloseFile(f) : EndIf
+
+  ; Custom error pages for FillErrorResponse tests
+  f = CreateFile(#PB_Any, g_ErrPagesDir + "404.html")
+  If f : WriteString(f, "<h1>Custom Not Found</h1>", #PB_Ascii) : CloseFile(f) : EndIf
+
+  f = CreateFile(#PB_Any, g_ErrPagesDir + "403.html")
+  If f : WriteString(f, "<h1>Custom Forbidden</h1>", #PB_Ascii) : CloseFile(f) : EndIf
 
   ; Ensure chain is empty so CallNext returns #False (clean pass-through)
   g_ChainCount = 0
@@ -81,6 +95,8 @@ ProcedureUnitShutdown mw_teardown()
   DeleteFile(g_MwAbout)
   DeleteFile(g_MwEtagFile)
   DeleteFile(g_MwRuleFile)
+  DeleteFile(g_ErrPagesDir + "404.html")
+  DeleteFile(g_ErrPagesDir + "403.html")
 EndProcedureUnit
 
 ; ── Middleware_HiddenPath ───────────────────────────────────────────────────
@@ -500,5 +516,188 @@ ProcedureUnit SecurityHeaders_EnabledNotHandled_NoHeaders()
 
   Protected result.i = Middleware_SecurityHeaders(@req, @resp, @mCtx)
   Assert(FindString(resp\Headers, "X-Content-Type-Options") = 0, "not-handled should get no security headers")
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── FillErrorResponse (Custom Error Pages) ──────────────────────────────
+
+ProcedureUnit ErrorPage_Custom404Served()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\ErrorPagesDir = g_ErrPagesDir
+  Protected resp.ResponseBuffer : InitResp(@resp)
+
+  FillErrorResponse(@resp, @cfg, #HTTP_404, "404 Not Found")
+  Assert(resp\StatusCode = #HTTP_404, "should be 404; got: " + Str(resp\StatusCode))
+  Assert(resp\Handled = #True, "should be handled")
+  Assert(FindString(resp\Headers, "text/html") > 0, "should serve as HTML")
+  Assert(resp\BodySize > 0, "body should not be empty")
+  ; Verify custom content
+  Protected body.s = PeekS(resp\Body, resp\BodySize, #PB_Ascii)
+  Assert(FindString(body, "Custom Not Found") > 0, "should contain custom page content")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit ErrorPage_Custom403ViaHiddenPath()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\ErrorPagesDir = g_ErrPagesDir
+  Protected req.HttpRequest  : req\Method = "GET" : req\Path = "/.git/config" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_HiddenPath(@req, @resp, @mCtx)
+  Assert(result = #True, "should block hidden path")
+  Assert(resp\StatusCode = #HTTP_403, "should be 403")
+  Assert(FindString(resp\Headers, "text/html") > 0, "should serve custom HTML error page")
+  Protected body.s = PeekS(resp\Body, resp\BodySize, #PB_Ascii)
+  Assert(FindString(body, "Custom Forbidden") > 0, "should contain custom 403 content")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit ErrorPage_FallbackWhenFileMissing()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\ErrorPagesDir = g_ErrPagesDir
+  Protected resp.ResponseBuffer : InitResp(@resp)
+
+  ; No 500.html exists → should fall back to plain text
+  FillErrorResponse(@resp, @cfg, #HTTP_500, "500 Internal Server Error")
+  Assert(resp\StatusCode = #HTTP_500, "should be 500")
+  Assert(FindString(resp\Headers, "text/plain") > 0, "should fall back to plain text")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit ErrorPage_DisabledUsesPlainText()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; ErrorPagesDir = "" (default — disabled)
+  Protected resp.ResponseBuffer : InitResp(@resp)
+
+  FillErrorResponse(@resp, @cfg, #HTTP_404, "404 Not Found")
+  Assert(resp\StatusCode = #HTTP_404, "should be 404")
+  Assert(FindString(resp\Headers, "text/plain") > 0, "disabled should use plain text")
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── Middleware_BasicAuth ─────────────────────────────────────────────────
+
+ProcedureUnit BasicAuth_DisabledPassThrough()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; BasicAuthUser = "" (default — disabled)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_BasicAuth(@req, @resp, @mCtx)
+  Assert(result = #False, "disabled auth should pass through")
+  Assert(resp\Handled = #False, "resp should not be handled")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit BasicAuth_NoHeader401()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\BasicAuthUser = "admin"
+  cfg\BasicAuthPass = "secret"
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_BasicAuth(@req, @resp, @mCtx)
+  Assert(result = #True, "missing auth should be handled")
+  Assert(resp\StatusCode = #HTTP_401, "should be 401; got: " + Str(resp\StatusCode))
+  Assert(resp\Handled = #True, "should be marked handled")
+  Assert(FindString(resp\Headers, "WWW-Authenticate: Basic") > 0, "should have WWW-Authenticate header")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit BasicAuth_WrongCredentials401()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\BasicAuthUser = "admin"
+  cfg\BasicAuthPass = "secret"
+  ; Base64("wrong:creds") = "d3Jvbmc6Y3JlZHM="
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/"
+  req\RawHeaders = "Authorization: Basic d3Jvbmc6Y3JlZHM="
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_BasicAuth(@req, @resp, @mCtx)
+  Assert(result = #True, "wrong creds should be handled")
+  Assert(resp\StatusCode = #HTTP_401, "should be 401; got: " + Str(resp\StatusCode))
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit BasicAuth_CorrectCredentials()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\BasicAuthUser = "admin"
+  cfg\BasicAuthPass = "secret"
+  ; Base64("admin:secret") = "YWRtaW46c2VjcmV0"
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/"
+  req\RawHeaders = "Authorization: Basic YWRtaW46c2VjcmV0"
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_BasicAuth(@req, @resp, @mCtx)
+  Assert(result = #False, "correct creds should pass through (empty chain)")
+  Assert(resp\Handled = #False, "resp should not be handled (passed to empty chain)")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit BasicAuth_PasswordWithColon()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\BasicAuthUser = "user"
+  cfg\BasicAuthPass = "pass:word"
+  ; Base64("user:pass:word") = "dXNlcjpwYXNzOndvcmQ="
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/"
+  req\RawHeaders = "Authorization: Basic dXNlcjpwYXNzOndvcmQ="
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_BasicAuth(@req, @resp, @mCtx)
+  Assert(result = #False, "password with colon should pass through")
+  Assert(resp\Handled = #False, "resp should not be handled")
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── Cache-Control ────────────────────────────────────────────────────────
+
+ProcedureUnit CacheControl_DefaultZero()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; CacheMaxAge = 0 (default)
+  ; Use ETag304 to test — compute real ETag
+  Protected etag.s = BuildETag(g_MwEtagFile)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/etag_test.txt"
+  req\RawHeaders = "If-None-Match: " + etag
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Middleware_ETag304(@req, @resp, @mCtx)
+  Assert(resp\StatusCode = #HTTP_304, "should be 304")
+  Assert(FindString(resp\Headers, "max-age=0") > 0, "default should be max-age=0")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit CacheControl_Custom3600InETag304()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\CacheMaxAge = 3600
+  Protected etag.s = BuildETag(g_MwEtagFile)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/etag_test.txt"
+  req\RawHeaders = "If-None-Match: " + etag
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Middleware_ETag304(@req, @resp, @mCtx)
+  Assert(resp\StatusCode = #HTTP_304, "should be 304")
+  Assert(FindString(resp\Headers, "max-age=3600") > 0, "should use custom max-age=3600")
+  Assert(FindString(resp\Headers, "max-age=0") = 0, "should not contain max-age=0")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit CacheControl_FileServerUsesConfigured()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\CacheMaxAge = 86400
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/index.html" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Middleware_FileServer(@req, @resp, @mCtx)
+  Assert(resp\StatusCode = #HTTP_200, "should be 200; got: " + Str(resp\StatusCode))
+  Assert(FindString(resp\Headers, "max-age=86400") > 0, "FileServer should use configured max-age=86400")
   FreeResp(@resp)
 EndProcedureUnit

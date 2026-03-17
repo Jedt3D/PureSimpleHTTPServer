@@ -4,7 +4,7 @@ EnableExplicit
 
 ; --- Application identity ---
 #APP_NAME    = "PureSimpleHTTPServer"
-#APP_VERSION = "2.4.0"
+#APP_VERSION = "2.5.0"
 
 ; --- HTTP status codes ---
 #HTTP_200 = 200   ; OK
@@ -14,6 +14,7 @@ EnableExplicit
 #HTTP_302 = 302   ; Found (temporary redirect)
 #HTTP_304 = 304   ; Not Modified
 #HTTP_400 = 400   ; Bad Request
+#HTTP_401 = 401   ; Unauthorized
 #HTTP_403 = 403   ; Forbidden
 #HTTP_404 = 404   ; Not Found
 #HTTP_416 = 416   ; Range Not Satisfiable

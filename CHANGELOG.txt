@@ -7,6 +7,14 @@ All notable changes to PureSimpleHTTPServer are documented here.
 Format: vX.Y.Z — YYYY-MM-DD HH:MM
 
 --------------------------------------------------------------------------------
+v2.5.0 — 2026-03-18
+  Custom error pages (--error-pages DIR) for branded 403/404/500 responses
+  HTTP Basic Authentication (--basic-auth USER:PASS) returns 401 Unauthorized
+  Configurable Cache-Control max-age (--cache-max-age N, default: 0)
+  FillErrorResponse() helper; Middleware_BasicAuth at slot 8
+  #HTTP_401 status code; 4 new ServerConfig fields
+  15 middleware in chain (was 14); 148 tests (was 136)
+
 v2.4.0 — 2026-03-17
   Health check endpoint (--health PATH), returns {"status":"ok"}
   CORS support (--cors, --cors-origin ORIGIN) with OPTIONS preflight (204)

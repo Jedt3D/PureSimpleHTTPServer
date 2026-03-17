@@ -11,8 +11,9 @@ receives a parsed request, an empty response buffer, and a context object:
 Client → TCP → RunRequest() → [chain] → send → free → log
 
 Chain:  Rewrite → HealthCheck → IndexFile → CleanUrls → SpaFallback
-        → HiddenPath → Cors → SecurityHeaders → ETag304 → GzipSidecar
-        → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing
+        → HiddenPath → Cors → BasicAuth → SecurityHeaders → ETag304
+        → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer
+        → DirectoryListing
 ```
 
 A middleware can:
@@ -31,7 +32,7 @@ memory cleanup. Middleware never call `SendNetwork*` directly.
 
 ```
 src/
-  Middleware.pbi    ← chain infra + all 14 middleware + RunRequest
+  Middleware.pbi    ← chain infra + all 15 middleware + RunRequest
   Types.pbi         ← ResponseBuffer, MiddlewareContext structures
   HttpResponse.pbi  ← FillTextResponse() for text responses
   FileServer.pbi    ← utility functions (ResolveIndexFile, BuildETag, IsHiddenPath)
@@ -92,6 +93,7 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_SpaFallback())
   RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_Cors())
+  RegisterMiddleware(@Middleware_BasicAuth())
   RegisterMiddleware(@Middleware_SecurityHeaders())
   RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_GzipSidecar())
@@ -141,18 +143,20 @@ Pos  Middleware              Type               Why this position
                                                 finalized by all modifiers
  7   Middleware_Cors         Hybrid             OPTIONS preflight short-circuit;
                                                 GET post-processing (CORS headers)
- 8   Middleware_SecHeaders   Post-processing    Append security headers after CORS
+ 8   Middleware_BasicAuth    Short-circuit      Reject unauthenticated requests
+                                                with 401 before security headers
+ 9   Middleware_SecHeaders   Post-processing    Append security headers after CORS
                                                 so both header sets can coexist
- 9   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
+10   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
                                                 (saves disk I/O on cache hits)
-10   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
+11   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
                                                 (pre-compressed is cheaper)
-11   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+12   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
                                                 fills it (skips if already encoded)
-12   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
-13   Middleware_FileServer   Terminal handler   Read file from disk — primary
+13   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+14   Middleware_FileServer   Terminal handler   Read file from disk — primary
                                                 content source
-14   Middleware_DirListing   Terminal handler   Directory listing — last resort
+15   Middleware_DirListing   Terminal handler   Directory listing — last resort
                                                 before 404
 ```
 
@@ -272,7 +276,7 @@ runs before `Middleware_GzipCompress` in the chain and short-circuits.
 **Chain position:**
 
 ```
-... → Cors → SecurityHeaders → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → ...
+... → Cors → BasicAuth → SecurityHeaders → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → ...
 ```
 
 ## Health Check, CORS, and Security Headers (v2.4.0+)
@@ -294,7 +298,17 @@ Hybrid middleware handling CORS:
 Enabled via `--cors` (permissive, `Origin: *`) or `--cors-origin ORIGIN` (restricted).
 `RunRequest()` was updated to allow the `OPTIONS` method through the method guard.
 
-### Middleware_SecurityHeaders (slot 8)
+### Middleware_BasicAuth (slot 8, v2.5.0+)
+
+Short-circuit middleware for HTTP Basic Authentication. When `--basic-auth USER:PASS`
+is configured, every request must include a valid `Authorization: Basic <base64>` header.
+Requests without credentials or with wrong credentials receive a `401 Unauthorized`
+response with a `WWW-Authenticate: Basic realm="Restricted"` header.
+
+Placed after Cors (so CORS preflight OPTIONS requests are handled first) and before
+SecurityHeaders (so 401 responses also receive security headers if enabled).
+
+### Middleware_SecurityHeaders (slot 9)
 
 Post-processing middleware that appends security headers to handled responses:
 - `X-Content-Type-Options: nosniff`
@@ -315,6 +329,18 @@ separator stripping and Windows path conversion. Used by most middleware:
 
 ```purebasic
 Protected fsPath.s = BuildFsPath(*cfg\RootDirectory, *req\Path)
+```
+
+### FillErrorResponse(*resp, statusCode, *cfg) (v2.5.0+)
+
+Fills a `ResponseBuffer` with a custom HTML error page if `--error-pages DIR` is
+configured and `{statusCode}.html` exists in that directory. Falls back to a
+plain-text response (e.g., "404 Not Found") if the custom page is missing or
+error pages are disabled. Used by all error response call sites in Middleware.pbi.
+
+```purebasic
+FillErrorResponse(*resp, #HTTP_404, *cfg)
+ProcedureReturn #True
 ```
 
 ### FillTextResponse(*resp, statusCode, contentType, body)

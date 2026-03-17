@@ -1,4 +1,4 @@
-# Scenarios Guide — PureSimpleHTTPServer v2.4.0
+# Scenarios Guide — PureSimpleHTTPServer v2.5.0
 
 Real-world configurations for common deployment patterns. Each scenario is self-contained: read only what you need. Every example assumes the binary is named `PureSimpleHTTPServer` and is in your current directory or `PATH`. Adjust paths to match your environment.
 
@@ -62,6 +62,11 @@ Real-world configurations for common deployment patterns. Each scenario is self-
 - [Scenario 35: Hidden Path Blocking](#scenario-35-hidden-path-blocking)
 - [Scenario 36: TLS and Auth via nginx or Caddy](#scenario-36-tls-and-auth-via-nginx-or-caddy)
 - [Scenario 37: Network Exposure Warning](#scenario-37-network-exposure-warning)
+
+**11. Authentication and Error Pages (v2.5.0+)**
+- [Scenario 38: Basic Auth for a Staging Site](#scenario-38-basic-auth-for-a-staging-site)
+- [Scenario 39: Custom Error Pages for a Branded Site](#scenario-39-custom-error-pages-for-a-branded-site)
+- [Scenario 40: Cache-Control for Fingerprinted Assets](#scenario-40-cache-control-for-fingerprinted-assets)
 
 ---
 
@@ -1452,7 +1457,7 @@ No additional flag is needed. The following requests are blocked unconditionally
 
 ### Scenario 36: TLS and Auth via nginx or Caddy
 
-PureSimpleHTTPServer does not implement TLS, HTTP authentication, or IP-based access control. For any public-facing deployment, use a reverse proxy.
+PureSimpleHTTPServer supports built-in HTTP Basic Authentication (via `--basic-auth`) for simple use cases. For advanced authentication, IP-based access control, or additional security layers on public-facing deployments, use a reverse proxy.
 
 **With Caddy (automatic TLS via Let's Encrypt):**
 
@@ -1528,7 +1533,7 @@ By default, PureSimpleHTTPServer binds to all interfaces (`0.0.0.0`), making it 
 
 3. **Hidden paths are still protected:** Even if the server is exposed, `.git/`, `.env`, and other dot-prefixed paths return `403 Forbidden` (see Scenario 35).
 
-4. **No authentication:** There is no built-in user/password mechanism. Do not store sensitive data in the document root if the port is accessible to untrusted clients.
+4. **Authentication:** Use `--basic-auth USER:PASS` to gate all requests behind HTTP Basic Authentication. For untrusted networks, combine with TLS (via reverse proxy) to protect credentials in transit.
 
 5. **Shut down when done:** For temporary local sharing sessions, stop the server as soon as you are finished:
    ```bash
@@ -1651,4 +1656,122 @@ find dist/ -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec g
 
 ---
 
-*PureSimpleHTTPServer v2.3.1 — Scenarios Guide*
+## 11. Authentication and Error Pages (v2.5.0+)
+
+---
+
+### Scenario 38: Basic Auth for a Staging Site
+
+You want to protect a staging environment so only your team can access it. HTTP Basic Authentication gates every request behind a username and password.
+
+```bash
+./PureSimpleHTTPServer \
+  --root /var/www/staging \
+  --port 8080 \
+  --basic-auth staging:s3cret \
+  --log /var/log/pshs/staging-access.log
+```
+
+**What happens:**
+
+- Every request without a valid `Authorization: Basic` header receives `401 Unauthorized` with a `WWW-Authenticate: Basic realm="Restricted"` header.
+- Browsers show a native login dialog. After entering `staging` / `s3cret`, the browser caches the credentials for the session.
+- Passwords may contain colons — only the first colon separates username from password. For example, `--basic-auth admin:pass:word` means username `admin`, password `pass:word`.
+
+**Testing:**
+
+```bash
+# Without credentials → 401
+curl -I http://localhost:8080/
+# HTTP/1.1 401 Unauthorized
+
+# With credentials → 200
+curl -u staging:s3cret http://localhost:8080/
+# HTTP/1.1 200 OK
+```
+
+**Combining with CORS:** CORS preflight (OPTIONS) requests are handled before BasicAuth in the middleware chain, so cross-origin API clients can still negotiate CORS without credentials on the preflight request:
+
+```bash
+./PureSimpleHTTPServer --root ./api-docs --basic-auth admin:secret --cors
+```
+
+---
+
+### Scenario 39: Custom Error Pages for a Branded Site
+
+You want a polished user experience when visitors encounter errors — a styled 404 page with your site's header, footer, and navigation instead of a bare "404 Not Found" text response.
+
+**Directory structure:**
+
+```
+my-site/
+├── wwwroot/
+│   ├── index.html
+│   └── style.css
+└── errors/
+    ├── 403.html    (custom "Access Denied" page)
+    ├── 404.html    (custom "Page Not Found" page)
+    └── 500.html    (custom "Server Error" page)
+```
+
+**Command:**
+
+```bash
+./PureSimpleHTTPServer \
+  --root ./wwwroot \
+  --error-pages ./errors \
+  --security-headers
+```
+
+**What happens:**
+
+- A request for a non-existent file (e.g., `/missing`) serves `errors/404.html` with status code `404`.
+- A request for a hidden path (e.g., `/.env`) serves `errors/403.html` with status code `403`.
+- If `errors/404.html` does not exist, the server falls back to the default plain-text response.
+- The error pages directory is separate from the document root, so error pages are not directly accessible via URL.
+
+**Tip:** Include your site's CSS in the error pages using absolute paths (`/style.css`) so the styling loads from the document root even when the error page comes from a different directory.
+
+---
+
+### Scenario 40: Cache-Control for Fingerprinted Assets
+
+Modern build tools (webpack, Vite, esbuild) produce output files with content hashes in their names (e.g., `app.3f2a1b.js`). These files never change — if the content changes, the filename changes. You can safely cache them for a very long time.
+
+**Command:**
+
+```bash
+./PureSimpleHTTPServer \
+  --root ./dist \
+  --cache-max-age 31536000 \
+  --clean-urls
+```
+
+**What this does:**
+
+- Every response includes `Cache-Control: max-age=31536000` (1 year).
+- Browsers and CDN proxies cache static assets aggressively.
+- The ETag/304 mechanism still works — on revalidation, unchanged files return `304 Not Modified` without transferring the body.
+
+**When NOT to use a long max-age:**
+
+- If your files are not fingerprinted, a long max-age means users see stale content until the cache expires.
+- For development, use the default `--cache-max-age 0` (always revalidate).
+
+**Typical production combination:**
+
+```bash
+./PureSimpleHTTPServer \
+  --root /var/www/mysite \
+  --port 8080 \
+  --cache-max-age 86400 \
+  --error-pages /var/www/errors \
+  --security-headers \
+  --health /healthz \
+  --log /var/log/pshs/access.log
+```
+
+---
+
+*PureSimpleHTTPServer v2.5.0 — Scenarios Guide*
