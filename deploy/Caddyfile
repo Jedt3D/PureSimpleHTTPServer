@@ -1,0 +1,45 @@
+# Caddyfile — reverse proxy for PureSimpleHTTPServer
+#
+# Caddy handles: TLS (auto Let's Encrypt), HTTP/2, gzip, load balancing.
+# Backend instances run plain HTTP with Connection: close.
+#
+# Usage:
+#   1. Start backend instances: ./launch.sh 4
+#   2. Edit this file: replace example.com with your domain
+#   3. Run Caddy:      caddy run --config deploy/Caddyfile
+#
+# Caddy auto-obtains a TLS certificate from Let's Encrypt for the domain.
+# Clients connect via HTTPS/HTTP2; Caddy forwards to backends via HTTP/1.1.
+
+example.com {
+	# Load balance across 4 backend instances (round-robin)
+	reverse_proxy localhost:8080 localhost:8081 localhost:8082 localhost:8083 {
+		lb_policy round_robin
+
+		# Health checks — remove unhealthy backends from rotation
+		health_uri      /
+		health_interval 10s
+		health_timeout  2s
+	}
+
+	# Compress responses (Caddy handles gzip/zstd for all clients)
+	encode gzip zstd
+
+	# Security headers
+	header {
+		X-Content-Type-Options    nosniff
+		X-Frame-Options           DENY
+		Referrer-Policy           strict-origin-when-cross-origin
+		-Server
+	}
+
+	# Access log
+	log {
+		output file /var/log/caddy/access.log
+	}
+}
+
+# Redirect www → apex
+www.example.com {
+	redir https://example.com{uri} permanent
+}

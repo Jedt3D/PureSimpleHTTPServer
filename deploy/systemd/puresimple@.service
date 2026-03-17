@@ -1,0 +1,65 @@
+# puresimple@.service — systemd template unit for PureSimpleHTTPServer
+#
+# Template unit: %i is the port number.
+#
+# Usage:
+#   sudo cp puresimple@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#
+#   # Start a single instance on port 8080:
+#   sudo systemctl start puresimple@8080
+#   sudo systemctl enable puresimple@8080
+#
+#   # Start 4 instances:
+#   for port in 8080 8081 8082 8083; do
+#     sudo systemctl enable --now puresimple@$port
+#   done
+#
+#   # Check status:
+#   sudo systemctl status 'puresimple@*'
+#
+#   # View logs:
+#   journalctl -u puresimple@8080 -f
+#
+# Prerequisites:
+#   - Create user:  sudo useradd -r -s /usr/sbin/nologin puresimple
+#   - Create dirs:  sudo mkdir -p /var/www /var/log/pshs
+#   - Set perms:    sudo chown puresimple:puresimple /var/www /var/log/pshs
+#   - Install bin:  sudo cp PureSimpleHTTPServer /usr/local/bin/
+
+[Unit]
+Description=PureSimpleHTTPServer on port %i
+After=network.target
+Documentation=https://github.com/user/PureSimpleHTTPServer
+
+[Service]
+Type=simple
+User=puresimple
+Group=puresimple
+
+ExecStart=/usr/local/bin/PureSimpleHTTPServer \
+    --port %i \
+    --root /var/www \
+    --log /var/log/pshs/access_%i.log \
+    --error-log /var/log/pshs/error_%i.log \
+    --pid-file /run/pshs/pshs_%i.pid
+
+# Runtime directory (systemd creates /run/pshs with correct ownership)
+RuntimeDirectory=pshs
+
+# Auto-restart on failure (5-second cooldown)
+Restart=on-failure
+RestartSec=5
+
+# Resource limits
+LimitNOFILE=65536
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/www /var/log/pshs /run/pshs
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
