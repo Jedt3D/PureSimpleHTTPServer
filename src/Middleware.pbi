@@ -2,7 +2,7 @@
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           Middleware_Rewrite, Middleware_HiddenPath, Middleware_ETag304,
-;           Middleware_HandleAll
+;           Middleware_GzipSidecar, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -127,6 +127,61 @@ Procedure.i Middleware_ETag304(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Mid
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
+; Middleware_GzipSidecar — serve pre-compressed .gz sidecar files
+Procedure.i Middleware_GzipSidecar(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected acceptEncoding.s = GetHeader(*req\RawHeaders, "Accept-Encoding")
+  Protected fsPath.s, gzPath.s, gzSize.i
+  Protected ext.s, mimeType.s, etag.s, mtime.q, extraHeaders.s
+  Protected *buffer, file.i
+
+  If FindString(acceptEncoding, "gzip") = 0
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
+  gzPath = fsPath + ".gz"
+  gzSize = FileSize(gzPath)
+
+  If gzSize < 0
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  *buffer = AllocateMemory(gzSize + 1)
+  If *buffer = 0
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  file = ReadFile(#PB_Any, gzPath)
+  If file = 0
+    FreeMemory(*buffer)
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  If gzSize > 0 : ReadData(file, *buffer, gzSize) : EndIf
+  CloseFile(file)
+
+  ; Metadata from the original (uncompressed) file
+  ext      = LCase(GetExtensionPart(fsPath))
+  mimeType = GetMimeType(ext)
+  etag     = BuildETag(fsPath)
+  mtime    = GetFileDate(fsPath, #PB_Date_Modified)
+
+  extraHeaders  = "Content-Type: "     + mimeType          + #CRLF$
+  extraHeaders + "Content-Encoding: "  + "gzip"            + #CRLF$
+  extraHeaders + "ETag: "              + etag              + #CRLF$
+  extraHeaders + "Last-Modified: "     + HTTPDate(mtime)   + #CRLF$
+  extraHeaders + "Cache-Control: "     + "max-age=0"       + #CRLF$
+  extraHeaders + "Vary: "              + "Accept-Encoding" + #CRLF$
+
+  *resp\StatusCode = #HTTP_200
+  *resp\Headers    = extraHeaders
+  *resp\Body       = *buffer
+  *resp\BodySize   = gzSize
+  *resp\Handled    = #True
+  ProcedureReturn #True
+EndProcedure
+
 ; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
 
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
@@ -135,7 +190,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   Protected fsPath.s, resolvedPath.s, ext.s, mimeType.s
   Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
   Protected *buffer, file.i
-  Protected rangeHeader.s, acceptEncoding.s
+  Protected rangeHeader.s
 
   ; --- Only handle GET requests ---
   If *req\Method <> "GET"
@@ -172,8 +227,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   indexList = *cfg\IndexFiles
 
   ; Extract request headers
-  rangeHeader    = GetHeader(*req\RawHeaders, "Range")
-  acceptEncoding = GetHeader(*req\RawHeaders, "Accept-Encoding")
+  rangeHeader = GetHeader(*req\RawHeaders, "Range")
 
   ; Build filesystem path
   fsPath = BuildFsPath(docRoot, urlPath)
@@ -235,35 +289,6 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   mimeType = GetMimeType(ext)
   etag     = BuildETag(fsPath)
   mtime    = GetFileDate(fsPath, #PB_Date_Modified)
-
-  ; --- Pre-compressed .gz sidecar ---
-  If FindString(acceptEncoding, "gzip") > 0
-    Protected gzPath.s = fsPath + ".gz"
-    Protected gzSize.i = FileSize(gzPath)
-    If gzSize >= 0
-      *buffer = AllocateMemory(gzSize + 1)
-      If *buffer
-        file = ReadFile(#PB_Any, gzPath)
-        If file
-          If gzSize > 0 : ReadData(file, *buffer, gzSize) : EndIf
-          CloseFile(file)
-          extraHeaders  = "Content-Type: "     + mimeType          + #CRLF$
-          extraHeaders + "Content-Encoding: "  + "gzip"            + #CRLF$
-          extraHeaders + "ETag: "              + etag              + #CRLF$
-          extraHeaders + "Last-Modified: "     + HTTPDate(mtime)   + #CRLF$
-          extraHeaders + "Cache-Control: "     + "max-age=0"       + #CRLF$
-          extraHeaders + "Vary: "              + "Accept-Encoding" + #CRLF$
-          *resp\StatusCode = #HTTP_200
-          *resp\Headers    = extraHeaders
-          *resp\Body       = *buffer
-          *resp\BodySize   = gzSize
-          *resp\Handled    = #True
-          ProcedureReturn #True
-        EndIf
-        FreeMemory(*buffer)
-      EndIf
-    EndIf
-  EndIf
 
   ; --- Range request ---
   If rangeHeader <> ""
@@ -401,5 +426,6 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_Rewrite())
   RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_ETag304())
+  RegisterMiddleware(@Middleware_GzipSidecar())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
