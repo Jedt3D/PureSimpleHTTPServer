@@ -45,64 +45,17 @@ XIncludeFile "RangeParser.pbi"
 XIncludeFile "EmbeddedAssets.pbi"
 XIncludeFile "Config.pbi"
 XIncludeFile "RewriteEngine.pbi"
+XIncludeFile "Middleware.pbi"
 XIncludeFile "SignalHandler.pbi"
 XIncludeFile "WindowsService.pbi"
 
 ; g_Config — server configuration (global so HandleRequest can access it)
 Global g_Config.ServerConfig
 
-; HandleRequest — called by TcpServer for each complete HTTP request
-Procedure.i HandleRequest(connection.i, raw.s)
-  Protected req.HttpRequest
-  Protected clientIP.s   = IPString(GetClientIP(connection))
-  Protected result.i
-  Protected bytesOut.i   = 0
-  Protected statusCode.i = 0
-  Protected referer.s, userAgent.s
-  Protected rwResult.RewriteResult
-  Protected redirHeaders.s, qPos.i
-
-  If Not ParseHttpRequest(raw, req)
-    SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
-    LogAccess(clientIP, "?", "/", "HTTP/1.1", #HTTP_400, 0, "", "")
-    ProcedureReturn #False
-  EndIf
-
-  referer   = GetHeader(req\RawHeaders, "Referer")
-  userAgent = GetHeader(req\RawHeaders, "User-Agent")
-
-  If req\Method = "GET"
-    ; Apply rewrite/redirect rules before serving
-    If ApplyRewrites(req\Path, g_Config\RootDirectory, @rwResult)
-      If rwResult\Action = 2   ; redirect
-        redirHeaders = "Location: " + rwResult\RedirURL + #CRLF$
-        SendNetworkString(connection, BuildResponseHeaders(rwResult\RedirCode, redirHeaders, 0), #PB_Ascii)
-        LogAccess(clientIP, req\Method, req\Path, req\Version, rwResult\RedirCode, 0, referer, userAgent)
-        ProcedureReturn #True
-      ElseIf rwResult\Action = 1   ; rewrite — update path; split off any ?query
-        qPos = FindString(rwResult\NewPath, "?")
-        If qPos > 0
-          req\QueryString = Mid(rwResult\NewPath, qPos + 1)
-          req\Path        = Left(rwResult\NewPath, qPos - 1)
-        Else
-          req\Path = rwResult\NewPath
-        EndIf
-      EndIf
-    EndIf
-
-    ; Try embedded assets first (returns #False if no pack or file not in pack)
-    If ServeEmbeddedFile(connection, req\Path)
-      LogAccess(clientIP, req\Method, req\Path, req\Version, #HTTP_200, 0, referer, userAgent)
-      ProcedureReturn #True
-    EndIf
-    result = ServeFile(connection, @g_Config, @req, @bytesOut, @statusCode)
-    LogAccess(clientIP, req\Method, req\Path, req\Version, statusCode, bytesOut, referer, userAgent)
-    ProcedureReturn result
-  EndIf
-
-  SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
-  LogAccess(clientIP, req\Method, req\Path, req\Version, #HTTP_400, 0, referer, userAgent)
-  ProcedureReturn #False
+; RunRequestWrapper — thin wrapper matching ConnectionHandlerProto signature
+; Bridges g_Handler (2 args) to RunRequest (3 args) by passing g_Config.
+Procedure.i RunRequestWrapper(connection.i, raw.s)
+  ProcedureReturn RunRequest(connection, raw, @g_Config)
 EndProcedure
 
 ; Helper: Check if a command-line argument exists
@@ -307,7 +260,8 @@ Procedure Main()
   PrintN("Press Ctrl+C to stop")
   PrintN("")
 
-  g_Handler = @HandleRequest()
+  BuildChain()
+  g_Handler = @RunRequestWrapper()
 
   If Not StartServer(g_Config\Port)
     PrintN("ERROR: Failed to start server on port " + Str(g_Config\Port))
