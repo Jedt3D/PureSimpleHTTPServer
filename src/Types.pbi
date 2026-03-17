@@ -25,6 +25,25 @@ Structure HttpResponse
   BodyBufferSize.i   ; Size of BodyBuffer in bytes
 EndStructure
 
+; Middleware response buffer — replaces direct SendNetwork* calls inside handlers.
+; Filled by middleware, sent by the chain runner (single point of I/O).
+; Memory rule: the chain runner always frees *Body after sending.
+Structure ResponseBuffer
+  StatusCode.i       ; HTTP status code (200, 304, 403, 404, etc.)
+  Headers.s          ; Extra response headers (each line ending with #CRLF$)
+  *Body              ; Pointer to allocated memory buffer (0 = no body)
+  BodySize.i         ; Size of Body in bytes
+  Handled.b          ; #True = a handler produced a response
+EndStructure
+
+; Per-request state passed through the middleware chain
+Structure MiddlewareContext
+  ChainIndex.i       ; Current position in the middleware chain
+  Connection.i       ; TCP connection ID (for the chain runner's send step)
+  *Config.ServerConfig ; Read-only server configuration
+  BytesSent.i        ; Filled after send — for access logging
+EndStructure
+
 ; Byte range for HTTP Range requests (used by RangeParser.pbi)
 Structure RangeSpec
   Start.i    ; First byte to serve (inclusive)
