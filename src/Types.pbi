@@ -15,16 +15,6 @@ Structure HttpRequest
   ErrorCode.i        ; HTTP status code on failure (typically 400)
 EndStructure
 
-; HTTP response to be sent to a client
-Structure HttpResponse
-  StatusCode.i       ; HTTP status code
-  StatusText.s       ; HTTP reason phrase
-  ExtraHeaders.s     ; Additional headers (each line ending with #CRLF$)
-  Body.s             ; Response body as string (for text responses)
-  BodyBuffer.i       ; Pointer to binary buffer (for file responses; 0 if unused)
-  BodyBufferSize.i   ; Size of BodyBuffer in bytes
-EndStructure
-
 ; Middleware response buffer — replaces direct SendNetwork* calls inside handlers.
 ; Filled by middleware, sent by the chain runner (single point of I/O).
 ; Memory rule: the chain runner always frees *Body after sending.

@@ -49,7 +49,7 @@ XIncludeFile "Middleware.pbi"
 XIncludeFile "SignalHandler.pbi"
 XIncludeFile "WindowsService.pbi"
 
-; g_Config — server configuration (global so HandleRequest can access it)
+; g_Config — server configuration (global so RunRequest can access it)
 Global g_Config.ServerConfig
 
 ; RunRequestWrapper — thin wrapper matching ConnectionHandlerProto signature
