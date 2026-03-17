@@ -1,6 +1,6 @@
 ; TcpServer.pbi — TCP server wrapper for HTTP connections
 ; Include with: XIncludeFile "TcpServer.pbi"
-; Provides: StartServer(), StopServer(), g_Handler
+; Provides: StartServer(), StopServer(), RestartServer(), g_Handler
 ;
 ; Phase E: thread-per-connection model
 ;   Data accumulation runs in the main event loop (single-threaded, safe).
@@ -15,6 +15,10 @@
 ;   thread and corrupts PureBasic's internal connection table (SIGSEGV under load).
 ;   Worker threads queue finished connection IDs into g_CloseList (protected by
 ;   g_CloseMutex); the main event loop drains the queue on every iteration.
+;
+; Phase 4: TLS support via UseNetworkTLS() + #PB_Network_TLSv1 flag.
+;          RestartServer() signals the event loop to close and reopen the listener
+;          (used by Phase 5 for certificate reload).
 ;
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
 
@@ -34,6 +38,16 @@ Global g_Running.i
 ; The main event loop pops and calls CloseNetworkConnection() — main thread only.
 Global g_CloseMutex.i
 Global NewList g_CloseList.i()
+
+; TLS configuration (set before StartServer; read by event loop for restart)
+Global g_TlsEnabled.i = #False
+Global g_TlsKey.s     = ""   ; PEM private key content
+Global g_TlsCert.s    = ""   ; PEM certificate content
+
+; Server state (global so RestartServer and event loop can coordinate)
+Global g_ServerID.i    = 0
+Global g_ServerPort.i  = 0
+Global g_RestartFlag.i = #False   ; set by RestartServer(), checked by event loop
 
 ; Per-connection data passed to the handler thread
 Structure ThreadData
@@ -55,12 +69,23 @@ Procedure ConnectionThread(*data.ThreadData)
   UnlockMutex(g_CloseMutex)
 EndProcedure
 
+; CreateServerWithTLS(port) — internal: create a network server with optional TLS
+Procedure.i CreateServerWithTLS(port.i)
+  Protected flags.i = #PB_Network_TCP
+  If g_TlsEnabled
+    UseNetworkTLS(g_TlsKey, g_TlsCert)
+    flags | #PB_Network_TLSv1
+  EndIf
+  ProcedureReturn CreateNetworkServer(#PB_Any, port, flags)
+EndProcedure
+
 ; StartServer(port.i) — create a TCP server and enter a blocking event loop
 ;
 ; Dispatches each complete HTTP request to g_Handler in a new thread.
 ; Returns #True on clean shutdown (StopServer() called), #False on startup failure.
 ;
 ; NOTE: g_Handler must be assigned before calling StartServer().
+;       For TLS: set g_TlsEnabled, g_TlsKey, g_TlsCert before calling.
 Procedure.i StartServer(port.i)
   Protected event.i, client.i, clientKey.s, received.i
   Protected *recvBuf, *td.ThreadData
@@ -71,8 +96,9 @@ Procedure.i StartServer(port.i)
     ProcedureReturn #False
   EndIf
 
-  Protected serverID.i = CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)
-  If serverID = 0
+  g_ServerPort = port
+  g_ServerID   = CreateServerWithTLS(port)
+  If g_ServerID = 0
     Debug "StartServer: CreateNetworkServer() failed on port " + Str(port)
     ProcedureReturn #False
   EndIf
@@ -83,11 +109,24 @@ Procedure.i StartServer(port.i)
   *recvBuf = AllocateMemory(#RECV_BUFFER_SIZE)
   If Not *recvBuf
     FreeMutex(g_CloseMutex)
-    CloseNetworkServer(serverID)
+    CloseNetworkServer(g_ServerID)
+    g_ServerID = 0
     ProcedureReturn #False
   EndIf
 
   Repeat
+    ; --- Handle restart signal (certificate reload) ---
+    If g_RestartFlag
+      g_RestartFlag = #False
+      CloseNetworkServer(g_ServerID)
+      ClearMap(accum())
+      g_ServerID = CreateServerWithTLS(g_ServerPort)
+      If g_ServerID = 0
+        Debug "RestartServer: failed to recreate server on port " + Str(g_ServerPort)
+        g_Running = #False
+      EndIf
+    EndIf
+
     ; --- Drain the close queue (main thread only) ---
     LockMutex(g_CloseMutex)
     ForEach g_CloseList()
@@ -96,7 +135,7 @@ Procedure.i StartServer(port.i)
     ClearList(g_CloseList())
     UnlockMutex(g_CloseMutex)
 
-    event = NetworkServerEvent(serverID)
+    event = NetworkServerEvent(g_ServerID)
     Select event
       Case 0
         Delay(1)  ; no event — avoid busy-wait
@@ -136,7 +175,10 @@ Procedure.i StartServer(port.i)
   Until g_Running = #False
 
   FreeMemory(*recvBuf)
-  CloseNetworkServer(serverID)
+  If g_ServerID > 0
+    CloseNetworkServer(g_ServerID)
+    g_ServerID = 0
+  EndIf
   FreeMutex(g_CloseMutex)
   ProcedureReturn #True
 EndProcedure
@@ -144,4 +186,11 @@ EndProcedure
 ; StopServer() — signal the event loop to terminate on the next iteration
 Procedure StopServer()
   g_Running = #False
+EndProcedure
+
+; RestartServer() — signal the event loop to close and reopen the listener
+; Used for TLS certificate reload. Brief downtime (milliseconds) is acceptable.
+; Thread-safe: can be called from a background renewal thread.
+Procedure RestartServer()
+  g_RestartFlag = #True
 EndProcedure

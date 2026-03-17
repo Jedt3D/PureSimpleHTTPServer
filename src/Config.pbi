@@ -15,6 +15,25 @@
 ; Also accepts a bare port number for backward compatibility (e.g. "8080")
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi
 
+; ReadPEMFile(path.s) — read an entire PEM file into a string
+; Returns the file content (with line breaks preserved), or "" on error.
+Procedure.s ReadPEMFile(path.s)
+  Protected file.i, size.i, content.s
+  If FileSize(path) < 0
+    ProcedureReturn ""
+  EndIf
+  file = ReadFile(#PB_Any, path)
+  If file = 0
+    ProcedureReturn ""
+  EndIf
+  size = Lof(file)
+  If size > 0
+    content = ReadString(file, #PB_Ascii | #PB_File_IgnoreEOL, size)
+  EndIf
+  CloseFile(file)
+  ProcedureReturn content
+EndProcedure
+
 ; LoadDefaults(*cfg.ServerConfig) — populate config with default values
 Procedure LoadDefaults(*cfg.ServerConfig)
   *cfg\Port           = #DEFAULT_PORT
@@ -38,6 +57,10 @@ Procedure LoadDefaults(*cfg.ServerConfig)
   ; Phase C: Windows Service defaults
   *cfg\ServiceMode    = #False
   *cfg\ServiceName    = "PureSimpleHTTPServer"
+  ; Phase 4+5: TLS defaults
+  *cfg\TlsCert        = ""
+  *cfg\TlsKey         = ""
+  *cfg\AutoTlsDomain  = ""
 EndProcedure
 
 ; ParseLogLevel(s.s) — convert level name to integer (0 if unrecognized)
@@ -126,6 +149,21 @@ Procedure.i ParseCLI(*cfg.ServerConfig)
       i + 1
       If i >= count : ProcedureReturn #False : EndIf
       *cfg\RewriteFile = ProgramParameter(i)
+
+    ElseIf param = "--tls-cert"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\TlsCert = ProgramParameter(i)
+
+    ElseIf param = "--tls-key"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\TlsKey = ProgramParameter(i)
+
+    ElseIf param = "--auto-tls"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\AutoTlsDomain = ProgramParameter(i)
 
     ElseIf param = "--service"
       *cfg\ServiceMode = #True

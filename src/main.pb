@@ -1,9 +1,4 @@
 ; main.pb — PureSimpleHTTPServer entry point
-; Phase F-1: Apache Combined Log Format, error log, log level filtering
-; Phase F-3: Daily rotation thread, PID file
-; Phase G:   URL rewriting (Caddy-compatible rewrite.conf, --clean-urls)
-; Phase C:   Windows Service integration (service mode, install/uninstall)
-;
 ; Compile as console app (thread-safe mode required):
 ;   pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ;
@@ -13,6 +8,8 @@
 ;                          [--log-size MB] [--log-keep N] [--no-log-daily]
 ;                          [--pid-file FILE]
 ;                          [--clean-urls] [--rewrite FILE]
+;                          [--tls-cert FILE] [--tls-key FILE]
+;                          [--auto-tls DOMAIN]
 ;                          [--service] [--service-name NAME]
 ;   ./PureSimpleHTTPServer [port]     (legacy: bare port number, default 8080)
 ;
@@ -78,6 +75,7 @@ EndProcedure
 Procedure Main()
   Protected serviceName.s
   Protected binaryPath.s
+  Protected listenScheme.s
 
   LoadDefaults(@g_Config)
 
@@ -88,12 +86,9 @@ Procedure Main()
     PrintN("                            [--log-size MB] [--log-keep N] [--no-log-daily]")
     PrintN("                            [--pid-file FILE]")
     PrintN("                            [--clean-urls] [--rewrite FILE]")
+    PrintN("                            [--tls-cert FILE --tls-key FILE]")
+    ; PrintN("                            [--auto-tls DOMAIN]")  ; Phase 5
     PrintN("                            [--service] [--service-name NAME]")
-    PrintN("Service Management (Windows only):")
-    PrintN("                            --install [--service-name NAME]")
-    PrintN("                            --uninstall [--service-name NAME]")
-    PrintN("                            --start [--service-name NAME]")
-    PrintN("                            --stop [--service-name NAME]")
     End 1
   EndIf
 
@@ -180,6 +175,8 @@ Procedure Main()
     PrintN("                            [--log-size MB] [--log-keep N] [--no-log-daily]")
     PrintN("                            [--pid-file FILE]")
     PrintN("                            [--clean-urls] [--rewrite FILE]")
+    PrintN("                            [--tls-cert FILE --tls-key FILE]")
+    ; PrintN("                            [--auto-tls DOMAIN]")  ; Phase 5
     End 1
   EndIf
 
@@ -236,12 +233,47 @@ Procedure Main()
   ; Install SIGHUP handler for logrotate integration (macOS/Linux; no-op on Windows)
   InstallSignalHandlers()
 
+  ; ── TLS setup ──────────────────────────────────────────────────────────
+
+  If g_Config\TlsCert <> "" And g_Config\TlsKey <> ""
+    ; --- Manual TLS: user-provided certificate files ---
+    g_TlsKey = ReadPEMFile(g_Config\TlsKey)
+    If g_TlsKey = ""
+      PrintN("ERROR: Cannot read TLS key file: " + g_Config\TlsKey)
+      End 1
+    EndIf
+    g_TlsCert = ReadPEMFile(g_Config\TlsCert)
+    If g_TlsCert = ""
+      PrintN("ERROR: Cannot read TLS certificate file: " + g_Config\TlsCert)
+      End 1
+    EndIf
+    g_TlsEnabled = #True
+
+  ElseIf g_Config\TlsCert <> "" Or g_Config\TlsKey <> ""
+    PrintN("ERROR: Both --tls-cert and --tls-key must be specified together")
+    End 1
+  EndIf
+
+  ; ── Startup banner ─────────────────────────────────────────────────────
+
   PrintN(#APP_NAME + " v" + #APP_VERSION)
   If g_EmbeddedPack > 0
     PrintN("Mode:       embedded assets (in-memory)")
   EndIf
   PrintN("Serving:    " + g_Config\RootDirectory)
-  PrintN("Listening:  http://localhost:" + Str(g_Config\Port))
+
+  If g_TlsEnabled
+    listenScheme = "https"
+  Else
+    listenScheme = "http"
+  EndIf
+  PrintN("Listening:  " + listenScheme + "://localhost:" + Str(g_Config\Port))
+
+  If g_TlsEnabled
+    PrintN("TLS cert:   " + g_Config\TlsCert)
+    PrintN("TLS key:    " + g_Config\TlsKey)
+  EndIf
+
   If g_Config\LogFile <> ""
     PrintN("Access log: " + g_Config\LogFile)
   EndIf
@@ -275,6 +307,7 @@ Procedure Main()
     End 1
   EndIf
 
+  ; Clean shutdown
   RemoveSignalHandlers()
   StopDailyRotation()
   CloseLogFile()

@@ -64,4 +64,9 @@ Structure ServerConfig
   ; --- Phase C: Windows Service ---
   ServiceMode.i      ; #True: run as Windows service (Windows only)
   ServiceName.s      ; Service name (default: "PureSimpleHTTPServer")
+  ; --- Phase 4: Manual HTTPS ---
+  TlsCert.s          ; Path to PEM certificate file ("" = TLS disabled)
+  TlsKey.s           ; Path to PEM private key file ("" = TLS disabled)
+  ; --- Phase 5: Auto-TLS ---
+  AutoTlsDomain.s    ; Domain for automatic certificate management ("" = disabled)
 EndStructure
