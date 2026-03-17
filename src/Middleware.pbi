@@ -4,7 +4,7 @@
 ;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
 ;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
 ;           Middleware_GzipSidecar, Middleware_EmbeddedAssets, Middleware_FileServer,
-;           Middleware_HandleAll
+;           Middleware_DirectoryListing, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -376,37 +376,41 @@ Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   ProcedureReturn #True
 EndProcedure
 
-; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
-
-Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+; Middleware_DirectoryListing — generate HTML directory listing
+Procedure.i Middleware_DirectoryListing(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
-  Protected fsPath.s
+  Protected fsPath.s = BuildFsPath(*cfg\RootDirectory, *req\Path)
 
-  ; --- Only handle GET requests ---
+  If FileSize(fsPath) <> -2   ; not a directory
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  If *cfg\BrowseEnabled
+    Protected listing.s = BuildDirectoryListing(fsPath, *req\Path)
+    If listing <> ""
+      FillTextResponse(*resp, #HTTP_200, "text/html; charset=utf-8", listing)
+      ProcedureReturn #True
+    EndIf
+    LogError("error", "BuildDirectoryListing failed: " + fsPath)
+    FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+    ProcedureReturn #True
+  Else
+    LogError("warn", "Directory listing disabled: " + *req\Path)
+    FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+    ProcedureReturn #True
+  EndIf
+EndProcedure
+
+; ── HandleAll (residual — only non-GET rejection remains) ──────────────────
+
+; Middleware_HandleAll — rejects non-GET requests with 400 Bad Request.
+; All other logic has been extracted into individual middleware.
+; Phase 3 will move this check to RunRequest and remove this procedure.
+Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   If *req\Method <> "GET"
     FillTextResponse(*resp, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
     ProcedureReturn #True
   EndIf
-
-  ; --- Directory handling (browse / 403 only) ---
-  fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
-  If FileSize(fsPath) = -2
-    If *cfg\BrowseEnabled
-      Protected listing.s = BuildDirectoryListing(fsPath, *req\Path)
-      If listing <> ""
-        FillTextResponse(*resp, #HTTP_200, "text/html; charset=utf-8", listing)
-        ProcedureReturn #True
-      EndIf
-      LogError("error", "BuildDirectoryListing failed: " + fsPath)
-      FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
-      ProcedureReturn #True
-    Else
-      LogError("warn", "Directory listing disabled: " + *req\Path)
-      FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
-      ProcedureReturn #True
-    EndIf
-  EndIf
-
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
@@ -491,5 +495,7 @@ Procedure BuildChain()
   ; Terminal handlers
   RegisterMiddleware(@Middleware_EmbeddedAssets())
   RegisterMiddleware(@Middleware_FileServer())
+  RegisterMiddleware(@Middleware_DirectoryListing())
+  ; Residual — non-GET rejection (Phase 3 moves to RunRequest)
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
