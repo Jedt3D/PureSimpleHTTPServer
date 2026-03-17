@@ -43,6 +43,7 @@ XIncludeFile "EmbeddedAssets.pbi"
 XIncludeFile "Config.pbi"
 XIncludeFile "RewriteEngine.pbi"
 XIncludeFile "Middleware.pbi"
+XIncludeFile "AutoTLS.pbi"
 XIncludeFile "SignalHandler.pbi"
 XIncludeFile "WindowsService.pbi"
 
@@ -87,7 +88,7 @@ Procedure Main()
     PrintN("                            [--pid-file FILE]")
     PrintN("                            [--clean-urls] [--rewrite FILE]")
     PrintN("                            [--tls-cert FILE --tls-key FILE]")
-    ; PrintN("                            [--auto-tls DOMAIN]")  ; Phase 5
+    PrintN("                            [--auto-tls DOMAIN]")
     PrintN("                            [--service] [--service-name NAME]")
     End 1
   EndIf
@@ -176,7 +177,7 @@ Procedure Main()
     PrintN("                            [--pid-file FILE]")
     PrintN("                            [--clean-urls] [--rewrite FILE]")
     PrintN("                            [--tls-cert FILE --tls-key FILE]")
-    ; PrintN("                            [--auto-tls DOMAIN]")  ; Phase 5
+    PrintN("                            [--auto-tls DOMAIN]")
     End 1
   EndIf
 
@@ -235,7 +236,52 @@ Procedure Main()
 
   ; ── TLS setup ──────────────────────────────────────────────────────────
 
-  If g_Config\TlsCert <> "" And g_Config\TlsKey <> ""
+  ; Determine TLS mode: auto-tls > manual tls > plain http
+  If g_Config\AutoTlsDomain <> ""
+    ; --- Auto-TLS: issue/renew certificates via acme.sh ---
+    g_AutoTlsDomain = g_Config\AutoTlsDomain
+
+    ; Set up ACME challenge directory inside the webroot
+    g_AcmeChallengeDir = g_Config\RootDirectory + "/.well-known/acme-challenge"
+    CreateDirectory(g_Config\RootDirectory + "/.well-known")
+    CreateDirectory(g_AcmeChallengeDir)
+
+    ; Start HTTP redirect server on port 80 (ACME challenges + HTTPS redirect)
+    PrintN("Starting HTTP challenge listener on port 80...")
+    StartHttpRedirect(80)
+
+    ; Issue certificate if it doesn't exist yet
+    If Not CertificateExists(g_AutoTlsDomain)
+      PrintN("Requesting TLS certificate for " + g_AutoTlsDomain + "...")
+      If Not IssueCertificate(g_AutoTlsDomain, g_Config\RootDirectory)
+        PrintN("ERROR: Failed to obtain TLS certificate")
+        PrintN("       Make sure acme.sh is installed (~/.acme.sh/acme.sh)")
+        PrintN("       and port 80 is accessible from the internet")
+        StopHttpRedirect()
+        End 1
+      EndIf
+      PrintN("Certificate obtained successfully")
+    EndIf
+
+    ; Load certificate into TLS globals
+    g_TlsKey  = ReadPEMFile(GetKeyPath(g_AutoTlsDomain))
+    g_TlsCert = ReadPEMFile(GetCertPath(g_AutoTlsDomain))
+    If g_TlsKey = "" Or g_TlsCert = ""
+      PrintN("ERROR: Failed to read TLS certificate/key files")
+      StopHttpRedirect()
+      End 1
+    EndIf
+    g_TlsEnabled = #True
+
+    ; Default to port 443 for auto-TLS unless explicitly set
+    If g_Config\Port = #DEFAULT_PORT
+      g_Config\Port = 443
+    EndIf
+
+    ; Start background renewal thread
+    StartCertRenewal()
+
+  ElseIf g_Config\TlsCert <> "" And g_Config\TlsKey <> ""
     ; --- Manual TLS: user-provided certificate files ---
     g_TlsKey = ReadPEMFile(g_Config\TlsKey)
     If g_TlsKey = ""
@@ -269,7 +315,10 @@ Procedure Main()
   EndIf
   PrintN("Listening:  " + listenScheme + "://localhost:" + Str(g_Config\Port))
 
-  If g_TlsEnabled
+  If g_Config\AutoTlsDomain <> ""
+    PrintN("Auto-TLS:   " + g_Config\AutoTlsDomain + " (renew every 12h)")
+    PrintN("Challenge:  http://localhost:80 (ACME + redirect)")
+  ElseIf g_TlsEnabled
     PrintN("TLS cert:   " + g_Config\TlsCert)
     PrintN("TLS key:    " + g_Config\TlsKey)
   EndIf
@@ -297,6 +346,10 @@ Procedure Main()
 
   If Not StartServer(g_Config\Port)
     PrintN("ERROR: Failed to start server on port " + Str(g_Config\Port))
+    If g_Config\AutoTlsDomain <> ""
+      StopCertRenewal()
+      StopHttpRedirect()
+    EndIf
     RemoveSignalHandlers()
     StopDailyRotation()
     CloseLogFile()
@@ -308,6 +361,10 @@ Procedure Main()
   EndIf
 
   ; Clean shutdown
+  If g_Config\AutoTlsDomain <> ""
+    StopCertRenewal()
+    StopHttpRedirect()
+  EndIf
   RemoveSignalHandlers()
   StopDailyRotation()
   CloseLogFile()
