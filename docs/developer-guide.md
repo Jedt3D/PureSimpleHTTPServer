@@ -11,8 +11,8 @@ receives a parsed request, an empty response buffer, and a context object:
 Client → TCP → RunRequest() → [chain] → send → free → log
 
 Chain:  Rewrite → IndexFile → CleanUrls → SpaFallback → HiddenPath
-        → ETag304 → GzipSidecar → EmbeddedAssets → FileServer
-        → DirectoryListing
+        → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets
+        → FileServer → DirectoryListing
 ```
 
 A middleware can:
@@ -31,7 +31,7 @@ memory cleanup. Middleware never call `SendNetwork*` directly.
 
 ```
 src/
-  Middleware.pbi    ← chain infra + all 10 middleware + RunRequest
+  Middleware.pbi    ← chain infra + all 11 middleware + RunRequest
   Types.pbi         ← ResponseBuffer, MiddlewareContext structures
   HttpResponse.pbi  ← FillTextResponse() for text responses
   FileServer.pbi    ← utility functions (ResolveIndexFile, BuildETag, IsHiddenPath)
@@ -138,10 +138,12 @@ Pos  Middleware              Type               Why this position
                                                 (saves disk I/O on cache hits)
  7   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
                                                 (pre-compressed is cheaper)
- 8   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
- 9   Middleware_FileServer   Terminal handler   Read file from disk — primary
+ 8   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+                                                fills it (skips if already encoded)
+ 9   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+10   Middleware_FileServer   Terminal handler   Read file from disk — primary
                                                 content source
-10   Middleware_DirListing   Terminal handler   Directory listing — last resort
+11   Middleware_DirListing   Terminal handler   Directory listing — last resort
                                                 before 404
 ```
 

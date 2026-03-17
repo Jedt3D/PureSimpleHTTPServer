@@ -1,6 +1,6 @@
 # Windows Deployment Guide — PureSimpleHTTPServer
 
-**Version:** 1.6.0
+**Version:** 2.3.1
 **Platform:** Windows 7/8/10/11 and Server editions
 **Status:** Production Ready
 
@@ -1036,6 +1036,6 @@ HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PureSimpleHTTPServer
 
 ---
 
-**Version:** 1.6.0
+**Version:** 2.3.1
 **Last Updated:** March 15, 2026
 **Maintainer:** PureSimpleHTTPServer Team
