@@ -137,7 +137,7 @@ TLS uses PureBasic's built-in `UseNetworkTLS()` called from `CreateServerWithTLS
 ```
 PureSimpleHTTPServer/
   src/                  Source modules (main entry point + .pbi includes)
-    main.pb             Entry point — includes all modules, defines HandleRequest()
+    main.pb             Entry point — includes all modules, starts middleware chain
     Global.pbi          Application-wide constants and HTTP status codes
     Types.pbi           Shared structure definitions (HttpRequest, ServerConfig, etc.)
     Config.pbi          CLI argument parsing and default configuration

@@ -133,7 +133,7 @@ The binary is installed globally (e.g. `/usr/local/bin/`) or you want to serve a
 **Verification:** After starting, confirm the root is correct in the startup banner:
 
 ```
-PureSimpleHTTPServer v1.5.0
+PureSimpleHTTPServer v2.3.1
 Serving:    /home/alice/public_html
 Listening:  http://localhost:8080
 ```
