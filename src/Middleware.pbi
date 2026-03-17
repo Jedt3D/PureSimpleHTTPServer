@@ -3,7 +3,8 @@
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
 ;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
-;           Middleware_GzipSidecar, Middleware_EmbeddedAssets, Middleware_HandleAll
+;           Middleware_GzipSidecar, Middleware_EmbeddedAssets, Middleware_FileServer,
+;           Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -282,67 +283,28 @@ Procedure.i Middleware_EmbeddedAssets(*req.HttpRequest, *resp.ResponseBuffer, *m
   ProcedureReturn #True
 EndProcedure
 
-; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
-
-Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+; Middleware_FileServer — serve files from disk (200 + 206 range responses)
+Procedure.i Middleware_FileServer(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
-  Protected urlPath.s, docRoot.s
-  Protected fsPath.s, ext.s, mimeType.s
-  Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
+  Protected fsPath.s = BuildFsPath(*cfg\RootDirectory, *req\Path)
+  Protected fileSize.i = FileSize(fsPath)
+  Protected ext.s, mimeType.s, etag.s, mtime.q, extraHeaders.s
   Protected *buffer, file.i
   Protected rangeHeader.s
 
-  ; --- Only handle GET requests ---
-  If *req\Method <> "GET"
-    FillTextResponse(*resp, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
-    ProcedureReturn #True
+  ; Not a regular file — let next handler try (DirListing, or runner 404)
+  If fileSize < 0 Or fileSize = -2
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
   EndIf
 
-  ; ── File serving ──
-
-  urlPath = *req\Path
-  docRoot = *cfg\RootDirectory
-
-  ; Extract request headers
-  rangeHeader = GetHeader(*req\RawHeaders, "Range")
-
-  ; Build filesystem path
-  fsPath = BuildFsPath(docRoot, urlPath)
-
-  fileSize = FileSize(fsPath)
-
-  ; --- Directory handling (browse / 403 only — index resolution moved to Middleware_IndexFile) ---
-  If fileSize = -2
-    If *cfg\BrowseEnabled
-      Protected listing.s = BuildDirectoryListing(fsPath, urlPath)
-      If listing <> ""
-        FillTextResponse(*resp, #HTTP_200, "text/html; charset=utf-8", listing)
-        ProcedureReturn #True
-      EndIf
-      LogError("error", "BuildDirectoryListing failed: " + fsPath)
-      FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
-      ProcedureReturn #True
-    Else
-      LogError("warn", "Directory listing disabled: " + urlPath)
-      FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
-      ProcedureReturn #True
-    EndIf
-  EndIf
-
-  ; --- File not found ---
-  If fileSize < 0
-    LogError("error", "File not found: " + fsPath)
-    FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
-    ProcedureReturn #True
-  EndIf
-
-  ; Common metadata
+  ; Compute metadata
   ext      = LCase(GetExtensionPart(fsPath))
   mimeType = GetMimeType(ext)
   etag     = BuildETag(fsPath)
   mtime    = GetFileDate(fsPath, #PB_Date_Modified)
 
-  ; --- Range request ---
+  ; --- Range request (206 Partial Content) ---
+  rangeHeader = GetHeader(*req\RawHeaders, "Range")
   If rangeHeader <> ""
     Protected range.RangeSpec
     If ParseRangeHeader(rangeHeader, fileSize, @range)
@@ -372,6 +334,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
       FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
       ProcedureReturn #True
     Else
+      ; 416 Range Not Satisfiable
       *resp\StatusCode = #HTTP_416
       *resp\Headers    = "Content-Range: bytes */" + Str(fileSize) + #CRLF$
       *resp\Body       = 0
@@ -381,7 +344,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- Regular 200 ---
+  ; --- Regular 200 response ---
   *buffer = AllocateMemory(fileSize + 1)
   If *buffer = 0
     LogError("error", "Out of memory serving: " + fsPath)
@@ -411,6 +374,40 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   *resp\BodySize   = fileSize
   *resp\Handled    = #True
   ProcedureReturn #True
+EndProcedure
+
+; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
+
+Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected fsPath.s
+
+  ; --- Only handle GET requests ---
+  If *req\Method <> "GET"
+    FillTextResponse(*resp, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
+    ProcedureReturn #True
+  EndIf
+
+  ; --- Directory handling (browse / 403 only) ---
+  fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
+  If FileSize(fsPath) = -2
+    If *cfg\BrowseEnabled
+      Protected listing.s = BuildDirectoryListing(fsPath, *req\Path)
+      If listing <> ""
+        FillTextResponse(*resp, #HTTP_200, "text/html; charset=utf-8", listing)
+        ProcedureReturn #True
+      EndIf
+      LogError("error", "BuildDirectoryListing failed: " + fsPath)
+      FillTextResponse(*resp, #HTTP_500, "text/plain; charset=utf-8", "500 Internal Server Error")
+      ProcedureReturn #True
+    Else
+      LogError("warn", "Directory listing disabled: " + *req\Path)
+      FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+      ProcedureReturn #True
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
 ; ────────────────────────────────────────────────────────────────────────────
@@ -493,5 +490,6 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_GzipSidecar())
   ; Terminal handlers
   RegisterMiddleware(@Middleware_EmbeddedAssets())
+  RegisterMiddleware(@Middleware_FileServer())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
