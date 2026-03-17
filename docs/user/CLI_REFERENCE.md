@@ -1,4 +1,4 @@
-# CLI Reference — PureSimpleHTTPServer v1.5.0
+# CLI Reference — PureSimpleHTTPServer v2.3.1
 
 This document describes every command-line flag and the legacy positional argument. Flags may appear in any order and can be freely combined.
 
@@ -6,12 +6,33 @@ This document describes every command-line flag and the legacy positional argume
 
 ## Flag Summary Table
 
+**Server:**
+
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--port N` | Integer | `8080` | TCP port to listen on |
 | `--root DIR` | String | `wwwroot/` next to binary | Document root directory |
 | `--browse` | Boolean flag | off | Enable directory listing when no index file exists |
 | `--spa` | Boolean flag | off | Serve root `index.html` for all 404 responses |
+
+**TLS:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--tls-cert FILE` | String | _(disabled)_ | Path to PEM certificate file |
+| `--tls-key FILE` | String | _(disabled)_ | Path to PEM private key file |
+| `--auto-tls DOMAIN` | String | _(disabled)_ | Enable automatic HTTPS via acme.sh for DOMAIN |
+
+**Compression:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--no-gzip` | Boolean flag | off | Disable dynamic gzip compression |
+
+**Logging:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
 | `--log FILE` | String | _(disabled)_ | Path to access log (Apache Combined Log Format) |
 | `--error-log FILE` | String | _(disabled)_ | Path to error log |
 | `--log-level LEVEL` | Enum | `warn` | Error log verbosity: `none`, `error`, `warn`, `info` |
@@ -19,6 +40,11 @@ This document describes every command-line flag and the legacy positional argume
 | `--log-keep N` | Integer | `30` | Maximum number of archived log files to retain |
 | `--no-log-daily` | Boolean flag | off | Disable automatic midnight log rotation |
 | `--pid-file FILE` | String | _(disabled)_ | Write the server PID to `FILE` at startup; deleted on clean exit |
+
+**URL:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
 | `--clean-urls` | Boolean flag | off | Serve `/page.html` when `/page` is requested |
 | `--rewrite FILE` | String | _(disabled)_ | Path to URL rewrite/redirect rule file |
 
@@ -301,6 +327,85 @@ Loads URL rewrite and redirect rules from the specified file. Rules are evaluate
 
 # Combine with --root for a full site configuration
 ./PureSimpleHTTPServer --root /var/www/html --rewrite /etc/pshs/rewrite.conf
+```
+
+---
+
+## TLS
+
+### `--tls-cert FILE`
+
+**Type:** String (file path)
+**Default:** disabled
+
+Path to a PEM-encoded TLS certificate file. Must be used together with `--tls-key`. When both are provided, the server listens over HTTPS instead of HTTP. Mutually exclusive with `--auto-tls`.
+
+```bash
+# Generate a self-signed cert for development
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+  -days 365 -nodes -subj "/CN=localhost"
+
+# Run with manual TLS
+./PureSimpleHTTPServer --port 8443 --tls-cert cert.pem --tls-key key.pem
+
+# Test
+curl -k https://localhost:8443/
+```
+
+---
+
+### `--tls-key FILE`
+
+**Type:** String (file path)
+**Default:** disabled
+
+Path to a PEM-encoded TLS private key file. Must be used together with `--tls-cert`. Both flags are required for manual TLS; specifying only one is an error.
+
+```bash
+# Both must be specified together
+./PureSimpleHTTPServer --tls-cert /etc/ssl/cert.pem --tls-key /etc/ssl/key.pem
+
+# Typical production setup behind a reverse proxy (not recommended — let the proxy handle TLS)
+./PureSimpleHTTPServer --port 8443 --root /var/www --tls-cert cert.pem --tls-key key.pem
+```
+
+---
+
+### `--auto-tls DOMAIN`
+
+**Type:** String (domain name)
+**Default:** disabled
+
+Enables automatic HTTPS via [acme.sh](https://acme.sh). The server issues a certificate for DOMAIN using the HTTP-01 challenge, starts an HTTP listener on port 80 for ACME challenges and HTTPS redirect, and serves HTTPS on port 443 (or the port set by `--port`). A background thread renews the certificate every 12 hours.
+
+Prerequisites: `acme.sh` installed at `~/.acme.sh/acme.sh`, port 80 accessible from the internet, DNS A record pointing to the server. Mutually exclusive with `--tls-cert`/`--tls-key`.
+
+```bash
+# Zero-config HTTPS for a production domain
+./PureSimpleHTTPServer --auto-tls example.com --root /var/www
+
+# Auto-TLS with logging
+./PureSimpleHTTPServer --auto-tls example.com --root /var/www \
+  --log /var/log/pshs/access.log --error-log /var/log/pshs/error.log
+```
+
+---
+
+## Compression
+
+### `--no-gzip`
+
+**Type:** Boolean flag (presence enables it)
+**Default:** off (dynamic gzip is enabled by default)
+
+Disables dynamic gzip compression. By default, the server compresses text, JSON, JavaScript, XML, and SVG responses when the client sends `Accept-Encoding: gzip` and the response body exceeds 256 bytes. Pre-compressed `.gz` sidecar files are still served regardless of this flag.
+
+```bash
+# Disable dynamic compression (useful if a reverse proxy handles compression)
+./PureSimpleHTTPServer --no-gzip
+
+# Disable gzip when serving pre-compressed content exclusively
+./PureSimpleHTTPServer --root ./dist --no-gzip
 ```
 
 ---

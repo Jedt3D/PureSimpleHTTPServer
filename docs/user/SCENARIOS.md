@@ -1,4 +1,4 @@
-# Scenarios Guide — PureSimpleHTTPServer v1.5.0
+# Scenarios Guide — PureSimpleHTTPServer v2.3.1
 
 Real-world configurations for common deployment patterns. Each scenario is self-contained: read only what you need. Every example assumes the binary is named `PureSimpleHTTPServer` and is in your current directory or `PATH`. Adjust paths to match your environment.
 
@@ -1540,4 +1540,115 @@ By default, PureSimpleHTTPServer binds to all interfaces (`0.0.0.0`), making it 
 
 ---
 
-*PureSimpleHTTPServer v1.5.0 — Scenarios Guide*
+## Self-Signed Certificate for Development
+
+Use HTTPS locally to test certificate handling, mixed-content warnings, or service workers that require a secure context.
+
+### Setup
+
+```bash
+# Generate a self-signed certificate valid for 365 days
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+  -days 365 -nodes -subj "/CN=localhost"
+
+# Start the server with HTTPS
+./PureSimpleHTTPServer --port 8443 --root ./dist \
+  --tls-cert cert.pem --tls-key key.pem
+```
+
+### Verify
+
+```bash
+curl -k https://localhost:8443/
+```
+
+Browsers will show a certificate warning for self-signed certs. In Chrome, type `thisisunsafe` to proceed. In Firefox, click "Advanced" → "Accept the Risk and Continue".
+
+---
+
+## Auto-TLS with Let's Encrypt
+
+Zero-config HTTPS for a public-facing server. The server obtains and renews certificates automatically.
+
+### Prerequisites
+
+1. Install acme.sh: `curl https://get.acme.sh | sh`
+2. Ensure port 80 is open (for ACME HTTP-01 challenge)
+3. DNS A record pointing `example.com` to your server's IP
+
+### Setup
+
+```bash
+./PureSimpleHTTPServer --auto-tls example.com --root /var/www \
+  --log /var/log/pshs/access.log --error-log /var/log/pshs/error.log
+```
+
+The server will:
+- Start an HTTP listener on port 80 (ACME challenges + HTTPS redirect)
+- Issue a certificate via `acme.sh --issue`
+- Start HTTPS on port 443
+- Renew the certificate every 12 hours in the background
+
+### What the user sees
+
+- `http://example.com` → 301 redirect to `https://example.com`
+- `https://example.com` → your site with a valid Let's Encrypt certificate
+
+---
+
+## Reverse Proxy with Caddy (4 Instances)
+
+Run multiple PureSimpleHTTPServer instances behind Caddy for high throughput and automatic TLS.
+
+### Start 4 backend instances
+
+```bash
+for port in 8081 8082 8083 8084; do
+  ./PureSimpleHTTPServer --port $port --root /var/www \
+    --log /var/log/pshs/access-$port.log &
+done
+```
+
+### Caddyfile
+
+```
+example.com {
+    reverse_proxy localhost:8081 localhost:8082 localhost:8083 localhost:8084 {
+        lb_policy round_robin
+        health_uri /
+        health_interval 30s
+    }
+}
+```
+
+### Benefits
+
+Caddy handles TLS, HTTP/2, keep-alive, and slow-client buffering. Each PureSimpleHTTPServer instance handles ~5k req/sec, giving 15k-20k req/sec aggregate.
+
+See [../deployment.md](../deployment.md) for the full deployment guide with systemd templates and launch scripts.
+
+---
+
+## Disable Gzip for Pre-Compressed Content
+
+When your build pipeline pre-compresses all assets (e.g., with `gzip -k`), disable dynamic compression to avoid redundant CPU work.
+
+### Setup
+
+```bash
+# Pre-compress during build
+find dist/ -type f \( -name "*.html" -o -name "*.css" -o -name "*.js" \) -exec gzip -k {} \;
+
+# Serve with dynamic gzip disabled — .gz sidecars are still served
+./PureSimpleHTTPServer --root ./dist --no-gzip
+```
+
+### How it works
+
+- `--no-gzip` disables the `Middleware_GzipCompress` dynamic compression
+- Pre-compressed `.gz` sidecar files (e.g., `app.js.gz`) are still served by `Middleware_GzipSidecar` with `Content-Encoding: gzip`
+- This is optimal when every compressible file has a `.gz` sidecar — zero CPU spent on compression at request time
+
+---
+
+*PureSimpleHTTPServer v2.3.1 — Scenarios Guide*

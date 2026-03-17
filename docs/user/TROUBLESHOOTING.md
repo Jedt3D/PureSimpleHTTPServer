@@ -673,6 +673,163 @@ If a file is missing, you'll see:
 
 ---
 
+## "Certificate file not found" / TLS startup error
+
+### Symptom
+
+Server fails to start with:
+
+```
+ERROR: Cannot read TLS certificate file: cert.pem
+```
+
+or
+
+```
+ERROR: Cannot read TLS key file: key.pem
+```
+
+### Cause
+
+The `--tls-cert` or `--tls-key` path does not point to a readable file, or both flags were not specified together.
+
+### Solution
+
+**Verify both files exist and are readable:**
+
+```bash
+ls -la cert.pem key.pem
+```
+
+**Both flags must be specified together:**
+
+```bash
+# Wrong — only one flag
+./PureSimpleHTTPServer --tls-cert cert.pem
+
+# Correct — both flags
+./PureSimpleHTTPServer --tls-cert cert.pem --tls-key key.pem
+```
+
+**Use absolute paths in production:**
+
+```bash
+./PureSimpleHTTPServer --tls-cert /etc/ssl/certs/server.pem --tls-key /etc/ssl/private/server.key
+```
+
+---
+
+## "acme.sh not installed" / Auto-TLS errors
+
+### Symptom
+
+Server fails to start with:
+
+```
+ERROR: Failed to obtain TLS certificate
+       Make sure acme.sh is installed (~/.acme.sh/acme.sh)
+       and port 80 is accessible from the internet
+```
+
+### Cause
+
+1. **acme.sh is not installed** at `~/.acme.sh/acme.sh`
+2. **Port 80 is blocked** by a firewall or another process
+3. **DNS is not configured** — the domain doesn't resolve to this server's IP
+
+### Solution
+
+**Install acme.sh:**
+
+```bash
+curl https://get.acme.sh | sh
+```
+
+**Check port 80 is available:**
+
+```bash
+lsof -i :80
+```
+
+If another process is using port 80, stop it or reconfigure it.
+
+**Verify DNS:**
+
+```bash
+dig +short example.com
+# Should return this server's public IP
+```
+
+---
+
+## "Port 80 already in use" (ACME challenge)
+
+### Symptom
+
+Auto-TLS fails because port 80 is already occupied (e.g., by Apache, nginx, or another web server).
+
+### Cause
+
+The `--auto-tls` feature starts an HTTP listener on port 80 to serve ACME HTTP-01 challenge files and redirect other traffic to HTTPS. If port 80 is already in use, this fails.
+
+### Solution
+
+**Stop the process using port 80:**
+
+```bash
+# Find and stop the conflicting process
+lsof -i :80
+sudo kill <PID>
+```
+
+**Or use manual TLS instead:**
+
+If you cannot free port 80, obtain your certificate separately and use manual TLS:
+
+```bash
+# Obtain cert with acme.sh standalone mode (temporarily binds port 80)
+~/.acme.sh/acme.sh --issue -d example.com --standalone
+
+# Then start with manual TLS
+./PureSimpleHTTPServer --port 443 \
+  --tls-cert ~/.acme.sh/example.com_ecc/fullchain.cer \
+  --tls-key ~/.acme.sh/example.com_ecc/example.com.key
+```
+
+---
+
+## Certificate renewal failed
+
+### Symptom
+
+The server logs show renewal errors, or after 90 days the certificate expires.
+
+### Cause
+
+The background renewal thread checks every 12 hours and calls `acme.sh --renew`. This can fail if:
+
+1. Port 80 is no longer accessible from the internet
+2. The acme.sh installation was removed or corrupted
+3. DNS changed and no longer points to this server
+
+### Solution
+
+**Test renewal manually:**
+
+```bash
+~/.acme.sh/acme.sh --renew -d example.com --force
+```
+
+**Check the error log for renewal messages:**
+
+```bash
+grep -i "renew\|tls\|cert" /var/log/pshs/error.log
+```
+
+**Restart the server** after fixing the underlying issue — the renewal thread will attempt renewal on the next 12-hour cycle.
+
+---
+
 ## Getting Help
 
 If you've worked through this guide and still have issues:

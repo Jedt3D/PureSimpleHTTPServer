@@ -1,4 +1,4 @@
-# Quick Start — PureSimpleHTTPServer v1.5.0
+# Quick Start — PureSimpleHTTPServer v2.3.1
 
 ## What Is PureSimpleHTTPServer?
 
@@ -117,8 +117,46 @@ These five flags cover the most common scenarios. Each is covered in full in the
 
 ---
 
+## Serve over HTTPS
+
+**Self-signed certificate (development):**
+
+```bash
+# Generate a self-signed cert
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+  -days 365 -nodes -subj "/CN=localhost"
+
+# Run with HTTPS
+./PureSimpleHTTPServer --port 8443 --tls-cert cert.pem --tls-key key.pem
+
+# Test (skip certificate verification for self-signed)
+curl -k https://localhost:8443/
+```
+
+**Automatic HTTPS with Let's Encrypt (production):**
+
+```bash
+# Prerequisites: acme.sh installed, port 80 open, DNS configured
+./PureSimpleHTTPServer --auto-tls example.com --root /var/www
+```
+
+The server automatically obtains a certificate, starts HTTPS on port 443, redirects HTTP→HTTPS on port 80, and renews the certificate in the background.
+
+---
+
+## Deploy in Production
+
+For production deployments, see the [Deployment Guide](../deployment.md) which covers:
+
+- **Standalone** — Single process, direct serving
+- **HTTPS Direct** — Manual or automatic certificates
+- **Reverse Proxy** — Multiple instances behind Caddy/nginx (recommended for high traffic)
+
+---
+
 ## Where to Go Next
 
 - **[CLI_REFERENCE.md](CLI_REFERENCE.md)** — Every flag documented with types, defaults, and examples.
 - **[SCENARIOS.md](SCENARIOS.md)** — End-to-end recipes for common deployment patterns (SPA, reverse proxy companion, CI preview server, etc.).
 - **[URL_REWRITING.md](URL_REWRITING.md)** — Syntax and examples for the `rewrite.conf` rule file.
+- **[../deployment.md](../deployment.md)** — Production deployment modes and configuration.

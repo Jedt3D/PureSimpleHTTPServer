@@ -231,6 +231,16 @@ tail -f /var/log/pshs/access.log
 
 You should see no interruption in request logging.
 
+## Gzip Compression and Byte Counts
+
+When dynamic gzip compression is active (the default), the access log records the **post-compression** byte count in the response size field. This reflects the actual number of bytes sent to the client over the network, not the original uncompressed size.
+
+For example, a 50 KB HTML page compressed to 12 KB will log `12000` in the bytes field.
+
+To see uncompressed sizes, disable dynamic compression with `--no-gzip`. Pre-compressed `.gz` sidecar responses also log the compressed size.
+
+---
+
 ## Best Practices
 
 ### Log Directory Setup

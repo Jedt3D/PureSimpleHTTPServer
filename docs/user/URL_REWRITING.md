@@ -1,4 +1,4 @@
-# URL Rewriting — PureSimpleHTTPServer v1.5.0
+# URL Rewriting — PureSimpleHTTPServer v2.3.1
 
 This document covers the full URL rewriting and redirecting system: rule file syntax, pattern types, placeholder substitution, per-directory rules, evaluation order, and practical recipes for common deployment scenarios.
 
@@ -829,4 +829,4 @@ Rules beyond the per-directory limit (16) are silently ignored. If you need more
 
 ---
 
-*PureSimpleHTTPServer v1.5.0 — URL Rewriting*
+*PureSimpleHTTPServer v2.3.1 — URL Rewriting*
