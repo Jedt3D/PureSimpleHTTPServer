@@ -264,3 +264,80 @@ ProcedureUnit MyMiddleware_Test()
   If resp\Body : FreeMemory(resp\Body) : EndIf
 EndProcedureUnit
 ```
+
+---
+
+## HTTPS Support
+
+### Manual Certificates (v2.1.0+)
+
+Provide PEM certificate and key files via CLI flags:
+
+```bash
+# Generate self-signed cert for development
+openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem \
+  -days 365 -nodes -subj "/CN=localhost"
+
+# Run with TLS
+./PureSimpleHTTPServer --port 8443 --root ./wwwroot \
+  --tls-cert cert.pem --tls-key key.pem
+
+# Test
+curl -k https://localhost:8443/
+```
+
+Both `--tls-cert` and `--tls-key` must be specified together. When omitted,
+the server runs plain HTTP as before.
+
+**Implementation details:**
+
+- `ReadPEMFile()` in Config.pbi reads PEM content into a string
+- `UseNetworkTLS(key$, cert$)` is called before `CreateNetworkServer()`
+- `#PB_Network_TLSv1` flag enables TLS 1.2/1.3 on the listener
+- `RestartServer()` signals the event loop to close and reopen the listener
+  (used by auto-TLS for certificate reload)
+
+### Automatic HTTPS with acme.sh (v2.2.0+)
+
+Zero-config HTTPS via Let's Encrypt:
+
+```bash
+# Prerequisites: acme.sh installed, port 80 open, DNS configured
+./PureSimpleHTTPServer --auto-tls example.com --root /var/www
+```
+
+The server automatically:
+
+1. Starts an HTTP listener on port 80 (ACME challenges + HTTPS redirect)
+2. Issues a certificate via `acme.sh --issue` (HTTP-01 webroot challenge)
+3. Loads the certificate and starts HTTPS on port 443
+4. Runs a background renewal thread (checks every 12 hours)
+5. Reloads certificates via `RestartServer()` on successful renewal
+
+**Architecture:**
+
+```
+Port 80  → HttpRedirectLoop (background thread)
+             → ACME challenge? → serve token file
+             → Everything else → 301 redirect to https://
+
+Port 443 → StartServer (main thread, full middleware chain)
+             → Normal HTTPS request processing
+
+Background → CertRenewalLoop (checks every 12h)
+               → acme.sh --renew → reload cert → RestartServer()
+```
+
+**Key files:**
+
+| File | Purpose |
+|------|---------|
+| `AutoTLS.pbi` | Certificate management, renewal thread, HTTP redirect server |
+| `Config.pbi` | `ReadPEMFile()`, `--auto-tls` flag |
+| `TcpServer.pbi` | `CreateServerWithTLS()`, `RestartServer()` |
+
+**TLS modes (mutually exclusive, highest priority first):**
+
+1. `--auto-tls DOMAIN` — automatic certificate via acme.sh
+2. `--tls-cert FILE --tls-key FILE` — manual certificate files
+3. Neither — plain HTTP (default)
