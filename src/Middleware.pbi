@@ -1,8 +1,8 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_HiddenPath, Middleware_ETag304,
-;           Middleware_GzipSidecar, Middleware_HandleAll
+;           Middleware_Rewrite, Middleware_IndexFile, Middleware_HiddenPath,
+;           Middleware_ETag304, Middleware_GzipSidecar, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -86,6 +86,27 @@ Procedure.i Middleware_Rewrite(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Mid
           *req\Path = rwResult\NewPath
         EndIf
       EndIf
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
+; Middleware_IndexFile — resolve directory → index file
+; If path is a directory and an index file exists, rewrite req\Path. Otherwise pass through.
+Procedure.i Middleware_IndexFile(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected fsPath.s = BuildFsPath(*cfg\RootDirectory, *req\Path)
+  Protected resolvedPath.s, urlDir.s
+
+  If FileSize(fsPath) = -2   ; directory
+    resolvedPath = ResolveIndexFile(fsPath, *cfg\IndexFiles)
+    If resolvedPath <> ""
+      urlDir = *req\Path
+      If Right(urlDir, 1) <> "/"
+        urlDir + "/"
+      EndIf
+      *req\Path = urlDir + GetFilePart(resolvedPath)
     EndIf
   EndIf
 
@@ -234,13 +255,9 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
 
   fileSize = FileSize(fsPath)
 
-  ; --- Directory handling ---
+  ; --- Directory handling (browse / 403 only — index resolution moved to Middleware_IndexFile) ---
   If fileSize = -2
-    resolvedPath = ResolveIndexFile(fsPath, indexList)
-    If resolvedPath <> ""
-      fsPath   = resolvedPath
-      fileSize = FileSize(fsPath)
-    ElseIf *cfg\BrowseEnabled
+    If *cfg\BrowseEnabled
       Protected listing.s = BuildDirectoryListing(fsPath, urlPath)
       If listing <> ""
         FillTextResponse(*resp, #HTTP_200, "text/html; charset=utf-8", listing)
@@ -424,6 +441,7 @@ EndProcedure
 Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
+  RegisterMiddleware(@Middleware_IndexFile())
   RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_GzipSidecar())
