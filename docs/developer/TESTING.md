@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v1.5.0 — Testing Guide
+# PureSimpleHTTPServer v2.3.1 — Testing Guide
 
 This document describes how to run the test suite, how to write new tests, and
 the pitfalls specific to PureBasic and the PureUnit framework as used in this
@@ -247,9 +247,47 @@ run.
 
 ---
 
-## 5. Current Test Files
+## 5. Middleware Isolation Testing Pattern
 
-There are 12 test files covering all modules:
+Middleware can be tested in isolation by calling them directly with crafted
+structures. The `test_middleware.pb` file demonstrates the standard pattern:
+
+```purebasic
+ProcedureUnit MyMiddleware_Test()
+  Protected cfg.ServerConfig
+  cfg\RootDirectory = g_TestRoot
+  cfg\IndexFiles    = "index.html"
+
+  Protected req.HttpRequest
+  req\Method = "GET" : req\Path = "/test"
+
+  Protected resp.ResponseBuffer
+  resp\StatusCode = 0 : resp\Body = 0 : resp\Handled = #False
+
+  Protected mCtx.MiddlewareContext
+  mCtx\ChainIndex = 0 : mCtx\Config = @cfg
+
+  ; Empty chain so CallNext returns #False
+  g_ChainCount = 0
+
+  Protected result.i = Middleware_YourFeature(@req, @resp, @mCtx)
+  Assert(...)
+
+  If resp\Body : FreeMemory(resp\Body) : EndIf
+EndProcedureUnit
+```
+
+Helper patterns used in test_middleware.pb:
+- **InitTestCfg** — set up a `ServerConfig` with test root and defaults
+- **InitResp** — zero-initialize a `ResponseBuffer`
+- **InitMCtx** — initialize a `MiddlewareContext` with config pointer
+- **FreeResp** — safely free `resp\Body` if allocated
+
+---
+
+## 6. Current Test Files
+
+There are 13 test files with 124 tests covering all modules:
 
 | File | Module(s) tested | Key behaviors |
 |---|---|---|
@@ -265,6 +303,7 @@ There are 12 test files covering all modules:
 | `test_config.pb` | `Config.pbi` | `LoadDefaults` field values, `ParseCLI` crash-safety |
 | `test_logger.pb` | `Logger.pbi` | CLF format, zero-byte dash, level filtering, size rotation, archive naming, keep-count pruning, SIGHUP reopen, daily thread start/stop |
 | `test_rewrite.pb` | `RewriteEngine.pbi` | Exact/glob/regex rewrite and redirect, placeholder substitution, first-rule-wins, per-directory rules, mtime cache, comment/blank-line skipping |
+| `test_middleware.pb` | `Middleware.pbi` | Middleware isolation tests: HiddenPath 403, ETag304 match/miss, IndexFile resolution, CleanUrls fallback, SpaFallback, GzipSidecar, FileServer 200/404, DirectoryListing, Rewrite/redirect, chain ordering |
 
 ---
 

@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v1.5.0 — Architecture Reference
+# PureSimpleHTTPServer v2.3.1 — Architecture Reference
 
 > **New to the codebase?** Start with [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md) —
 > a step-by-step tutorial that builds a server from scratch using the same libraries.
@@ -7,38 +7,40 @@
 
 PureSimpleHTTPServer is a single-binary HTTP/1.1 static file server written entirely in PureBasic 6.x, compiled with the C backend (`pbcompiler -cl -t`). The `-t` flag enables thread-safe mode, which is required by the thread-per-connection dispatch model.
 
-The server ships as source code. Integrators compile it directly into their own binary, optionally embedding a ZIP-packed web application in a `DataSection` block so that no separate file deployment is needed.
-
 Key design properties:
 
-- **Single binary.** No external runtime, no configuration file required. All defaults are valid for immediate use.
-- **Thread-per-connection.** Each complete HTTP request is handed off to a dedicated OS thread. The main event loop stays unblocked and continues accepting new connections.
-- **C backend.** PureBasic's C backend produces portable C code before final compilation. This matters for the `ImportC ""` block used to call `getpid()` on POSIX targets, and for the `signal()` import used by the SIGHUP handler.
-- **No heap allocator overhead.** Buffers are allocated with `AllocateMemory` and freed immediately after use. Strings are PureBasic managed strings; no manual string allocation is required except in `RewriteEngine.pbi`, where `Global Dim` arrays are replaced with raw memory blocks to work around a PureUnit/ARM64 initialisation bug.
+- **Single binary.** No external runtime, no configuration file required.
+- **Middleware chain.** Every request flows through an ordered chain of 11 middleware. Each middleware can pre-process, short-circuit, or post-process the request/response.
+- **Thread-per-connection.** Each complete HTTP request is handed off to a dedicated OS thread.
+- **C backend.** PureBasic's C backend produces portable C code. This matters for `ImportC ""` blocks used for `getpid()` and `signal()`.
+- **TLS support.** Manual certificates or automatic HTTPS via acme.sh integration.
 
 ---
 
 ## 2. Module Map
 
-The inclusion order in `main.pb` determines the compile order. Each `XIncludeFile` is guarded by PureBasic's `XIncludeFile` semantics (included at most once per compilation unit).
+The inclusion order in `main.pb` determines the compile order. Each `XIncludeFile` is guarded by PureBasic's idempotent semantics.
 
 ```
 main.pb
  |
  +-- Global.pbi          (constants, HTTP status codes, buffer sizes)
- +-- Types.pbi           (HttpRequest, HttpResponse, RangeSpec, ServerConfig, RewriteResult)
+ +-- Types.pbi           (HttpRequest, ResponseBuffer, MiddlewareContext,
+ |                         ResponseWriter, RangeSpec, ServerConfig, RewriteResult)
  +-- DateHelper.pbi      (HTTPDate — RFC 7231 date formatting)
  +-- UrlHelper.pbi       (URLDecodePath, NormalizePath)
  +-- HttpParser.pbi      (ParseHttpRequest, GetHeader)
  |     depends on: Types.pbi, UrlHelper.pbi
- +-- HttpResponse.pbi    (StatusText, BuildResponseHeaders, SendTextResponse)
+ +-- HttpResponse.pbi    (StatusText, BuildResponseHeaders, SendTextResponse,
+ |                         FillTextResponse)
  |     depends on: Global.pbi
- +-- TcpServer.pbi       (StartServer, StopServer, ConnectionThread, close-queue)
+ +-- TcpServer.pbi       (StartServer, StopServer, CreateServerWithTLS,
+ |                         RestartServer, ConnectionThread, close-queue)
  |     depends on: Global.pbi
  +-- MimeTypes.pbi       (GetMimeType)
  +-- Logger.pbi          (OpenLogFile, LogAccess, LogError, rotation, daily thread)
  |     depends on: Global.pbi
- +-- FileServer.pbi      (ServeFile, ResolveIndexFile, BuildETag, IsHiddenPath)
+ +-- FileServer.pbi      (ResolveIndexFile, BuildETag, IsHiddenPath)
  |     depends on: Global.pbi, Types.pbi, DateHelper.pbi, HttpParser.pbi,
  |                 HttpResponse.pbi, MimeTypes.pbi
  |     forward-declares: BuildDirectoryListing, ParseRangeHeader, SendPartialResponse
@@ -48,190 +50,204 @@ main.pb
  |     depends on: Global.pbi, Types.pbi, HttpResponse.pbi
  +-- EmbeddedAssets.pbi  (OpenEmbeddedPack, ServeEmbeddedFile, CloseEmbeddedPack)
  |     depends on: Global.pbi, MimeTypes.pbi, HttpResponse.pbi
- +-- Config.pbi          (LoadDefaults, ParseCLI)
+ +-- Config.pbi          (LoadDefaults, ParseCLI, ReadPEMFile)
  |     depends on: Global.pbi, Types.pbi
  +-- RewriteEngine.pbi   (InitRewriteEngine, LoadGlobalRules, ApplyRewrites,
  |                         CleanupRewriteEngine, GlobalRuleCount)
  |     depends on: Global.pbi, Types.pbi
+ +-- Middleware.pbi       (RegisterMiddleware, CallNext, RunRequest, BuildChain,
+ |                         all 11 middleware, PlainWriter, GzipCompressBuffer)
+ |     depends on: Global.pbi, Types.pbi, HttpParser.pbi, HttpResponse.pbi,
+ |                 MimeTypes.pbi, DateHelper.pbi, Logger.pbi, FileServer.pbi,
+ |                 DirectoryListing.pbi, RangeParser.pbi, EmbeddedAssets.pbi,
+ |                 RewriteEngine.pbi
+ +-- AutoTLS.pbi          (IssueCertificate, RenewCertificate, CertRenewalLoop,
+ |                         HttpRedirectLoop, StartHttpRedirect, StopHttpRedirect,
+ |                         StartCertRenewal, StopCertRenewal)
+ |     depends on: Config.pbi
  +-- SignalHandler.pbi   (InstallSignalHandlers, RemoveSignalHandlers)
-       depends on: Logger.pbi (g_ReopenLogs)
+ |     depends on: Logger.pbi (g_ReopenLogs)
+ +-- WindowsService.pbi  (InstallService, UninstallService, RunAsService)
+       depends on: Global.pbi (Windows-only, stubs on other platforms)
 ```
-
-`FileServer.pbi` uses forward `Declare` statements for `BuildDirectoryListing`, `ParseRangeHeader`, and `SendPartialResponse` because those modules are included after it. PureBasic resolves forward declarations at the end of the compilation unit; this is intentional and not a circular dependency.
 
 ---
 
-## 3. Request Lifecycle
+## 3. Middleware Chain
 
-The following describes the path of a single HTTP GET request from TCP accept to final response, referencing the actual procedure names.
+The middleware chain is the central architectural pattern (v2.0.0+). It replaces the monolithic `HandleRequest`/`ServeFile` dispatch path from v1.x.
 
-### 3.1 Connection accept (main thread)
-
-`StartServer(port.i)` calls `CreateNetworkServer(#PB_Any, port, #PB_Network_TCP)` and enters a blocking `Repeat … Until g_Running = #False` loop driven by `NetworkServerEvent(serverID)`.
-
-On `#PB_NetworkEvent_Connect`, the client ID is stored as a key in the local `accum` map with an empty accumulation string.
-
-### 3.2 Data accumulation (main thread)
-
-On `#PB_NetworkEvent_Data`, `ReceiveNetworkData` fills a 64 KB (`#RECV_BUFFER_SIZE`) stack-allocated buffer. The received bytes are appended to `accum(clientKey)` as an ASCII string.
-
-Dispatch occurs when `FindString(accum(clientKey), #CRLF$ + #CRLF$)` returns a positive position, indicating that the complete request header block has arrived. The server does not wait for a body beyond the headers before dispatching.
-
-### 3.3 Thread dispatch
-
-An `AllocateStructure(ThreadData)` block is filled with the client connection ID and the accumulated raw string. `CreateThread(@ConnectionThread(), *td)` hands this to a new OS thread. The main thread immediately returns to the event loop.
-
-If `CreateThread` fails (OS thread limit reached), the request is handled synchronously on the main thread as a fallback, and `CloseNetworkConnection` is called directly.
-
-### 3.4 ConnectionThread (worker thread)
+### Chain Diagram
 
 ```
-Procedure ConnectionThread(*data.ThreadData)
+Client → TCP → RunRequest() → [chain] → send → free → log
+
+Chain:
+ Pos  Middleware              Type               Why this position
+ ───  ──────────────────────  ─────────────────  ─────────────────────────────
+  1   Middleware_Rewrite      Request modifier   Rewrite path BEFORE anything
+                                                 checks the filesystem
+  2   Middleware_IndexFile    Request modifier   Resolve /dir/ → /dir/index.html
+  3   Middleware_CleanUrls    Request modifier   Try /about → /about.html
+  4   Middleware_SpaFallback  Request modifier   Last-resort path rewrite
+  5   Middleware_HiddenPath   Access control     Block .git/.env AFTER path finalized
+  6   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
+  7   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
+  8   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+  9   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+ 10   Middleware_FileServer   Terminal handler   Read file from disk
+ 11   Middleware_DirListing   Terminal handler   Directory listing — last resort
 ```
 
-Extracts `client` and `raw` from `*data`, frees the `ThreadData` structure, then calls `g_Handler(client, raw)`. On return, it pushes `client` onto `g_CloseList` under `g_CloseMutex` — it does **not** call `CloseNetworkConnection` directly (see Section 4).
+### How middleware work
 
-### 3.5 HandleRequest (worker thread, via g_Handler)
+Each middleware receives `(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)` and can:
 
-```
-Procedure.i HandleRequest(connection.i, raw.s)
-```
+- **Pre-process:** Modify `*req\Path`, then call `CallNext()`.
+- **Short-circuit:** Fill `*resp` and return `#True` without calling `CallNext()`.
+- **Post-process:** Call `CallNext()` first, then modify `*resp` (e.g., GzipCompress).
+- **Pass through:** Just call `CallNext()` and return its result.
 
-Defined in `main.pb`. This is the only place where application logic is wired together.
-
-1. **Parse.** `ParseHttpRequest(raw, req)` fills an `HttpRequest` structure. On failure, sends a 400 and returns.
-
-2. **Rewrite/redirect.** `ApplyRewrites(req\Path, g_Config\RootDirectory, @rwResult)` is called for every GET request. If `rwResult\Action = 2` (redirect), `BuildResponseHeaders` is used to send a 301/302 and the function returns. If `rwResult\Action = 1` (rewrite), `req\Path` is updated in place (query string split off if `?` is present).
-
-3. **Embedded assets.** `ServeEmbeddedFile(connection, req\Path)` is tried first. It returns `#False` immediately if no pack is open, so there is no overhead when not in embedded mode.
-
-4. **Disk serving.** `ServeFile(connection, @g_Config, @req, @bytesOut, @statusCode)` handles all remaining cases: hidden path blocking, directory index resolution, directory listing, clean URLs, pre-compressed `.gz` sidecars, ETag/304 conditional requests, Range/206 partial content, and the regular 200 path.
-
-5. **Access log.** `LogAccess(clientIP, method, path, version, statusCode, bytesOut, referer, userAgent)` is called unconditionally after every handled request.
-
-### 3.6 Close-queue drain (main thread)
-
-At the top of every event loop iteration, the main thread acquires `g_CloseMutex`, iterates `g_CloseList`, calls `CloseNetworkConnection` for each queued ID, then clears the list.
+The chain runner (`RunRequest`) is the **single point** of network I/O and memory cleanup. Middleware never call `SendNetwork*` directly.
 
 ---
 
-## 4. Threading Model
+## 4. Request Lifecycle
+
+### 4.1 Connection accept (main thread)
+
+`StartServer(port)` calls `CreateServerWithTLS(port)` (which uses `CreateNetworkServer` with optional `#PB_Network_TLSv1`) and enters a blocking event loop.
+
+### 4.2 Data accumulation (main thread)
+
+On `#PB_NetworkEvent_Data`, received bytes are appended to the per-client accumulation string. Dispatch occurs when `\r\n\r\n` is found.
+
+### 4.3 Thread dispatch
+
+A `ThreadData` structure is passed to `CreateThread(@ConnectionThread(), *td)`. The main thread returns to the event loop.
+
+### 4.4 ConnectionThread (worker thread)
+
+Calls `g_Handler(client, raw)`, which invokes `RunRequestWrapper` → `RunRequest`.
+
+### 4.5 RunRequest (worker thread)
+
+1. Parse request via `ParseHttpRequest`
+2. Reject non-GET with 400
+3. Initialize empty `ResponseBuffer` and `MiddlewareContext`
+4. Run middleware chain via `CallNext`
+5. Send response via `PlainWriter` (headers + body)
+6. Free `resp\Body`
+7. Log access via `LogAccess`
+
+### 4.6 Close-queue drain (main thread)
+
+Worker threads push finished connection IDs into `g_CloseList`. The main thread drains the queue and calls `CloseNetworkConnection` exclusively from the main thread.
+
+---
+
+## 5. Threading Model
 
 ### Main thread responsibilities
 
-- `NetworkServerEvent` loop — the only thread that calls PureBasic network functions on the server socket.
-- `CloseNetworkConnection` calls — see below.
-- `g_CloseList` drain — every loop iteration, under `g_CloseMutex`.
-- Signal handler installation (`InstallSignalHandlers`) and removal (`RemoveSignalHandlers`) — called before and after `StartServer` respectively.
+- `NetworkServerEvent` loop
+- `CloseNetworkConnection` calls (via close-queue drain)
+- Signal handler installation/removal
+- Certificate renewal restart (`RestartServer`)
 
 ### Worker threads
 
-One thread is created per dispatched request via `CreateThread(@ConnectionThread(), *td)`. Threads are detached (PureBasic does not join them); the connection ID is the only shared resource passed out, via the close queue.
+One thread per dispatched request via `CreateThread`. Threads push the connection ID onto `g_CloseList` and never call `CloseNetworkConnection` directly.
 
 ### Why CloseNetworkConnection must run on the main thread
 
-PureBasic's `CloseNetworkConnection` internally modifies the library's connection table, which is also read and written by `NetworkServerEvent` on the main thread. Calling `CloseNetworkConnection` from a worker thread creates a race condition that produces a SIGSEGV under concurrent load. The close-queue pattern (`g_CloseList` + `g_CloseMutex`) serialises all close calls back onto the main thread, eliminating this race.
+PureBasic's `CloseNetworkConnection` modifies the library's internal connection table, which `NetworkServerEvent` also accesses on the main thread. The close-queue pattern serialises all close calls.
 
 ### Mutex inventory
 
 | Mutex | Global | Protects |
 |-------|--------|----------|
 | `g_CloseMutex` | `TcpServer.pbi` | `g_CloseList` — worker threads push, main thread pops |
-| `g_LogMutex` | `Logger.pbi` | Both log file handles (`g_LogFile`, `g_ErrorLogFile`), `g_ReopenLogs` flag, and all rotation state |
-| `g_RewriteMutex` | `RewriteEngine.pbi` | All rewrite rule arrays and the per-directory cache |
-
-The logger uses a single mutex for both the access log and the error log. This prevents interleaved lines when a worker thread calls both `LogAccess` and `LogError` in close succession, at the cost of slightly increased contention on high-traffic servers.
+| `g_LogMutex` | `Logger.pbi` | Both log file handles, `g_ReopenLogs` flag, all rotation state |
+| `g_RewriteMutex` | `RewriteEngine.pbi` | All rewrite rule arrays and per-directory cache |
 
 ---
 
-## 5. Global State
+## 6. TLS Lifecycle
 
-The following globals span module boundaries. Modules that define their own internal globals (such as `g_LogFile`, `g_LogMutex`, `g_GR_Count`) are documented in the Module Reference.
+### TLS modes (mutually exclusive, highest priority first)
+
+1. `--auto-tls DOMAIN` — automatic certificate via acme.sh
+2. `--tls-cert FILE --tls-key FILE` — manual certificate files
+3. Neither — plain HTTP (default)
+
+### Auto-TLS architecture
+
+```
+Port 80  → HttpRedirectLoop (background thread)
+             → ACME challenge? → serve token file
+             → Everything else → 301 redirect to https://
+
+Port 443 → StartServer (main thread, full middleware chain)
+             → Normal HTTPS request processing
+
+Background → CertRenewalLoop (checks every 12h)
+               → acme.sh --renew → reload cert → RestartServer()
+```
+
+### Certificate reload
+
+`RestartServer()` sets `g_RestartFlag`, which causes the main event loop to close the listener and recreate it with updated TLS globals. In-flight requests complete before the restart.
+
+---
+
+## 7. Global State
 
 | Global | Type | Defined in | Purpose |
 |--------|------|-----------|---------|
-| `g_Handler` | `ConnectionHandlerProto` | `TcpServer.pbi` | Function pointer set to `@HandleRequest()` in `main.pb` before `StartServer` is called |
-| `g_Running` | `.i` | `TcpServer.pbi` | Set to `#True` by `StartServer`; set to `#False` by `StopServer` to break the event loop |
-| `g_CloseMutex` | `.i` | `TcpServer.pbi` | Mutex handle protecting `g_CloseList` |
-| `g_CloseList` | `NewList .i()` | `TcpServer.pbi` | Linked list of connection IDs awaiting close on the main thread |
-| `g_EmbeddedPack` | `.i` | `EmbeddedAssets.pbi` | `CatchPack` handle; 0 when no embedded assets are present |
-| `g_ServerPID` | `.i` | `Logger.pbi` | Process ID written to the error log `[pid N]` field and to the PID file |
-| `g_LogLevel` | `.i` | `Logger.pbi` | Minimum error log level threshold (0=none 1=error 2=warn 3=info); copied from `g_Config\LogLevel` at startup |
-| `g_LogMaxBytes` | `.i` | `Logger.pbi` | Size-rotation threshold in bytes; 0 disables size-based rotation |
-| `g_LogKeepCount` | `.i` | `Logger.pbi` | Maximum number of archived log files to keep per log |
-| `g_ReopenLogs` | `.i` | `Logger.pbi` | Set to 1 by the SIGHUP handler; checked inside `g_LogMutex` by `LogAccess`/`LogError` |
-| `g_RewriteMutex` | `.i` | `RewriteEngine.pbi` | Mutex handle protecting all rewrite rule storage |
-| `g_Config` | `ServerConfig` | `main.pb` | Parsed runtime configuration; read-only after `ParseCLI` returns |
-
-`g_Config` is declared in `main.pb` rather than a shared header because it is the only true application-level singleton. All modules that need configuration receive a `*cfg.ServerConfig` pointer argument rather than reading `g_Config` directly, which keeps them testable in isolation.
+| `g_Handler` | `ConnectionHandlerProto` | `TcpServer.pbi` | Function pointer set to `@RunRequestWrapper()` |
+| `g_Running` | `.i` | `TcpServer.pbi` | `#True` while event loop is active |
+| `g_CloseMutex` | `.i` | `TcpServer.pbi` | Mutex for close queue |
+| `g_CloseList` | `NewList .i()` | `TcpServer.pbi` | Connection IDs awaiting close |
+| `g_TlsEnabled` | `.i` | `TcpServer.pbi` | TLS active flag |
+| `g_TlsKey` / `g_TlsCert` | `.s` | `TcpServer.pbi` | PEM content for TLS |
+| `g_RestartFlag` | `.i` | `TcpServer.pbi` | Signal server restart for cert reload |
+| `g_EmbeddedPack` | `.i` | `EmbeddedAssets.pbi` | CatchPack handle; 0 = no pack |
+| `g_ServerPID` | `.i` | `Logger.pbi` | Process ID for logs and PID file |
+| `g_LogLevel` | `.i` | `Logger.pbi` | Error log threshold |
+| `g_LogMaxBytes` | `.i` | `Logger.pbi` | Size-rotation threshold |
+| `g_ReopenLogs` | `.i` | `Logger.pbi` | Set by SIGHUP handler |
+| `g_Chain` / `g_ChainCount` | `Dim`/`.i` | `Middleware.pbi` | Middleware chain array |
+| `g_Config` | `ServerConfig` | `main.pb` | Parsed runtime configuration |
 
 ---
 
-## 6. Memory Management
+## 8. Memory Management
 
-### String memory
+### ResponseBuffer ownership
 
-PureBasic manages string memory automatically. `HttpRequest`, `RewriteResult`, and `ServerConfig` structures contain `.s` string fields that are reference-counted by the runtime. No explicit freeing is needed for structures allocated on the stack with `Protected`.
+Three rules prevent leaks (see [developer-guide.md](../developer-guide.md)):
 
-### Network receive buffer
-
-`StartServer` allocates one 64 KB (`#RECV_BUFFER_SIZE`) buffer with `AllocateMemory` at server startup and frees it at shutdown. This single buffer is reused for every `ReceiveNetworkData` call, which is safe because all data is immediately copied into the PureBasic `accum` string map.
-
-### File send buffers
-
-`ServeFile` and `SendPartialResponse` allocate a buffer of exactly `fileSize + 1` (or `rangeLen + 1`) bytes per request, fill it with `ReadData`, send it with `SendNetworkData`, and immediately free it with `FreeMemory`. There is no pooling; each request owns its buffer for its lifetime only.
+1. The chain runner (`RunRequest`) always frees `resp\Body`.
+2. A middleware replacing `resp\Body` must free the old one first.
+3. Short-circuit middleware set `resp\Body` or leave it at 0.
 
 ### RewriteEngine flat arrays
 
-`RewriteEngine.pbi` does not use `Global Dim` arrays. Instead, `InitRewriteEngine()` calls `AllocateMemory` for each logical array and stores the raw pointer in a scalar `Global .i` variable. Elements are accessed via `RW_IGET`/`RW_ISET` macros that compute byte offsets manually.
-
-This design works around three bugs in PureBasic 6.30 ARM64 under PureUnit:
-
-1. `Global NewList` + `AddElement` inside any procedure corrupts list internal state; subsequent `ForEach` or `ClearList` segfaults.
-2. `Global Dim` of structure types with embedded `.s` string fields causes memory corruption during global initialisation.
-3. PureUnit skips top-level `main()` initialisation code, so `Global Dim` array descriptors remain zero. `SYS_ReAllocateArray` (used internally by `ReDim`) reads element-size and type from the descriptor — both zero — and crashes.
-
-`AllocateMemory` called from inside `InitRewriteEngine()` runs correctly regardless of how the module is loaded, making it safe for both production and test contexts.
+`RewriteEngine.pbi` uses `AllocateMemory` blocks instead of `Global Dim` arrays to work around PureUnit/ARM64 initialization bugs.
 
 ---
 
-## 7. Extension Points
+## 9. Extension Points
+
+### Adding a new middleware
+
+Write a procedure matching the `MiddlewareHandler` prototype, register it in `BuildChain()` at the correct position. See [EXTENDING.md](EXTENDING.md) and [developer-guide.md](../developer-guide.md).
 
 ### Replacing the request handler
 
-The server's dispatch point is the `g_Handler` function pointer:
-
-```purebasic
-Prototype.i ConnectionHandlerProto(connection.i, raw.s)
-Global g_Handler.ConnectionHandlerProto
-```
-
-Before calling `StartServer`, assign your handler:
-
-```purebasic
-g_Handler = @MyHandleRequest()
-```
-
-`ConnectionThread` calls `g_Handler(client, raw)` on every dispatched request. The signature is fixed: `connection` is the PureBasic network connection ID (used with `SendNetworkString`/`SendNetworkData`); `raw` is the complete raw HTTP request string as received from the client.
-
-The built-in `HandleRequest` procedure in `main.pb` shows the canonical implementation: parse, rewrite, embedded-first dispatch, disk dispatch, log. A custom handler can skip any of these steps or add new ones (e.g. a dynamic route table, WebSocket upgrade, authentication middleware) by replacing or wrapping `HandleRequest`.
-
-### Adding rewrite rules at runtime
-
-`LoadGlobalRules(path.s)` can be called at any time from the main thread. It acquires `g_RewriteMutex`, frees the existing global rules, and reloads from the file. Worker threads already holding the mutex will finish their current rule evaluation first.
+Assign any `ConnectionHandlerProto` to `g_Handler` before calling `StartServer`.
 
 ### Embedding a web application
 
-To ship a web application inside the binary:
-
-1. Run `scripts/pack_assets.sh dist/ webapp.zip` to create a ZIP archive of the built application.
-2. Add `UseZipPacker()` to `main.pb` and include the binary in a `DataSection`:
-   ```purebasic
-   DataSection
-     webapp:    IncludeBinary "webapp.zip"
-     webappEnd:
-   EndDataSection
-   ```
-3. Call `OpenEmbeddedPack(?webapp, ?webappEnd - ?webapp)` in `Main()` before `StartServer`.
-
-`ServeEmbeddedFile` is called before `ServeFile` on every GET request. When the embedded pack is open, assets are served directly from the in-memory decompressed buffer. Files not found in the pack fall through to disk serving, allowing the embedded assets to be selectively overridden from the filesystem during development.
+Use `DataSection` + `IncludeBinary` + `OpenEmbeddedPack`. See [BUILDING.md](BUILDING.md).

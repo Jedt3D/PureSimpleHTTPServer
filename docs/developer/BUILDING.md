@@ -1,6 +1,6 @@
 # Building PureSimpleHTTPServer
 
-This document covers everything you need to compile PureSimpleHTTPServer v1.5.0
+This document covers everything you need to compile PureSimpleHTTPServer v2.3.1
 from source, including prerequisites, build commands, compiler flag explanations,
 the source layout, and how to produce a self-contained binary with embedded web
 application assets.
@@ -120,6 +120,16 @@ automatically on Windows.
 There is no `-d` macro or conditional compilation constant used in this codebase
 to distinguish build types; the distinction is entirely in which flags you pass.
 
+### Runtime Dependencies
+
+The following PureBasic compiler directives are used at the top level and must
+be linked:
+
+- `UseZipPacker()` — Required for embedded assets (`CatchPack`) and dynamic gzip compression (`CompressMemory` with `#PB_PackerPlugin_Zip`).
+- `UseCRC32Fingerprint()` — Required for gzip trailer CRC32 computation via `Fingerprint(*buf, size, #PB_Cipher_CRC32)`.
+
+TLS uses PureBasic's built-in `UseNetworkTLS()` called from `CreateServerWithTLS()` in `TcpServer.pbi` — no external OpenSSL installation is needed.
+
 ---
 
 ## 4. Directory Structure
@@ -143,7 +153,10 @@ PureSimpleHTTPServer/
     Logger.pbi          Apache Combined Log Format access log + error log + rotation
     RewriteEngine.pbi   URL rewrite and redirect rules (Caddy-compatible subset)
     EmbeddedAssets.pbi  In-memory asset serving via CatchPack/UncompressPackMemory
+    Middleware.pbi       Middleware chain infrastructure + all 11 middleware
+    AutoTLS.pbi         Automatic HTTPS via acme.sh integration
     SignalHandler.pbi   SIGHUP handler for logrotate integration (macOS/Linux)
+    WindowsService.pbi  Windows Service API wrapper (stubs on non-Windows)
 
   tests/                PureUnit test files
     TestCommon.pbi      Shared XIncludeFile chain for all test files
