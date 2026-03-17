@@ -1,7 +1,7 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_HandleAll
+;           Middleware_Rewrite, Middleware_HiddenPath, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -76,6 +76,19 @@ Procedure.i Middleware_Rewrite(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Mid
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
+; Middleware_HiddenPath — block requests to hidden paths (.git, .env, etc.)
+Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+
+  If *cfg\HiddenPatterns <> "" And IsHiddenPath(*req\Path, *cfg\HiddenPatterns)
+    LogError("error", "Forbidden: " + *req\Path)
+    FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
+    ProcedureReturn #True
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
 ; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
 
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
@@ -119,13 +132,6 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   urlPath   = *req\Path
   docRoot   = *cfg\RootDirectory
   indexList = *cfg\IndexFiles
-
-  ; Block hidden paths
-  If *cfg\HiddenPatterns <> "" And IsHiddenPath(urlPath, *cfg\HiddenPatterns)
-    LogError("error", "Forbidden: " + urlPath)
-    FillTextResponse(*resp, #HTTP_403, "text/plain; charset=utf-8", "403 Forbidden")
-    ProcedureReturn #True
-  EndIf
 
   ; Extract request headers
   rangeHeader    = GetHeader(*req\RawHeaders, "Range")
@@ -373,5 +379,6 @@ EndProcedure
 Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
+  RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
