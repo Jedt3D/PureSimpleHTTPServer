@@ -210,6 +210,60 @@ ProcedureReturn #True
 
 ---
 
+## ResponseWriter Abstraction (v2.3.0+)
+
+The `ResponseWriter` is a vtable-based writer interface for body output. It
+decouples *what produces the bytes* from *where the bytes go*.
+
+```purebasic
+Structure ResponseWriter
+  Write.ProtoWrite          ; function pointer: write bytes
+  Flush.ProtoFlush          ; function pointer: flush/finalize
+  *inner.ResponseWriter     ; wrapped writer (0 for terminal)
+  *ctx                      ; opaque state pointer
+  connection.i              ; TCP connection ID (PlainWriter)
+EndStructure
+```
+
+**PlainWriter** — sends bytes directly to the TCP socket via `SendNetworkData`.
+The chain runner (`RunRequest`) uses PlainWriter for all body output.
+
+Future writers (brotli, chunked transfer encoding) wrap an inner writer — the
+handler writes to the wrapper, which transforms and forwards to the real writer.
+
+## Dynamic Gzip Compression (v2.3.0+)
+
+`Middleware_GzipCompress` is a **post-processing** middleware:
+
+1. Calls `CallNext()` to let downstream fill `resp\Body`
+2. If all conditions met: compresses the body in-place
+3. Returns the downstream result
+
+**Conditions for compression:**
+- `--no-gzip` is NOT set
+- Client sends `Accept-Encoding: gzip`
+- Response has a body larger than 256 bytes
+- Content-Type is compressible (text/\*, JSON, JS, XML, SVG)
+- No `Content-Encoding` header already set (avoids double-compression)
+
+**How it works internally:**
+
+`GzipCompressBuffer()` converts PureBasic's `CompressMemory()` output
+(zlib format) to valid gzip by:
+
+1. Stripping the 2-byte zlib header and 4-byte Adler-32 trailer
+2. Wrapping with a 10-byte gzip header + 8-byte CRC32/size trailer
+3. CRC32 computed via `Fingerprint(*buf, size, #PB_Cipher_CRC32)`
+
+Pre-compressed `.gz` sidecars still take priority — `Middleware_GzipSidecar`
+runs before `Middleware_GzipCompress` in the chain and short-circuits.
+
+**Chain position:**
+
+```
+... → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → ...
+```
+
 ## Utility Functions
 
 ### BuildFsPath(docRoot.s, urlPath.s) → String
