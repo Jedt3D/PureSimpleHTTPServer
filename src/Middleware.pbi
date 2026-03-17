@@ -1,8 +1,9 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_IndexFile, Middleware_HiddenPath,
-;           Middleware_ETag304, Middleware_GzipSidecar, Middleware_HandleAll
+;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
+;           Middleware_HiddenPath, Middleware_ETag304, Middleware_GzipSidecar,
+;           Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -107,6 +108,23 @@ Procedure.i Middleware_IndexFile(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
         urlDir + "/"
       EndIf
       *req\Path = urlDir + GetFilePart(resolvedPath)
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
+; Middleware_CleanUrls — try path + ".html" for extensionless paths
+Procedure.i Middleware_CleanUrls(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected fsPath.s
+
+  If *cfg\CleanUrls And GetExtensionPart(*req\Path) = ""
+    fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
+    If FileSize(fsPath) < 0
+      If FileSize(fsPath + ".html") >= 0
+        *req\Path = *req\Path + ".html"
+      EndIf
     EndIf
   EndIf
 
@@ -273,15 +291,6 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- Clean URLs ---
-  If fileSize < 0 And *cfg\CleanUrls And GetExtensionPart(urlPath) = ""
-    Protected cleanFsPath.s = fsPath + ".html"
-    If FileSize(cleanFsPath) >= 0
-      fsPath   = cleanFsPath
-      fileSize = FileSize(fsPath)
-    EndIf
-  EndIf
-
   ; --- File not found ---
   If fileSize < 0
     If *cfg\SpaFallback
@@ -442,6 +451,7 @@ Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
   RegisterMiddleware(@Middleware_IndexFile())
+  RegisterMiddleware(@Middleware_CleanUrls())
   RegisterMiddleware(@Middleware_HiddenPath())
   RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_GzipSidecar())
