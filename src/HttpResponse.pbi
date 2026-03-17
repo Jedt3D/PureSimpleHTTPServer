@@ -1,7 +1,7 @@
 ; HttpResponse.pbi — HTTP/1.1 response builder
 ; Include with: XIncludeFile "HttpResponse.pbi"
-; Provides: StatusText(), BuildResponseHeaders(), SendTextResponse()
-; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
+; Provides: StatusText(), BuildResponseHeaders(), SendTextResponse(), FillTextResponse()
+; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi
 
 ; StatusText(code.i) — return the standard HTTP reason phrase for a status code
 Procedure.s StatusText(code.i)
@@ -52,4 +52,23 @@ Procedure SendTextResponse(connection.i, statusCode.i, contentType.s, body.s)
   If byteLen > 0
     SendNetworkString(connection, body, #PB_UTF8)
   EndIf
+EndProcedure
+
+; FillTextResponse(*resp, statusCode, contentType, body)
+; Write a text response into a ResponseBuffer instead of the network.
+; Allocates a UTF-8 body buffer; the chain runner frees it after sending.
+Procedure FillTextResponse(*resp.ResponseBuffer, statusCode.i, contentType.s, body.s)
+  Protected byteLen.i = StringByteLength(body, #PB_UTF8)
+  *resp\StatusCode = statusCode
+  *resp\Headers    = "Content-Type: " + contentType + #CRLF$
+  If byteLen > 0
+    *resp\Body = AllocateMemory(byteLen)
+    If *resp\Body
+      PokeS(*resp\Body, body, -1, #PB_UTF8 | #PB_String_NoZero)
+    EndIf
+  Else
+    *resp\Body = 0
+  EndIf
+  *resp\BodySize = byteLen
+  *resp\Handled  = #True
 EndProcedure
