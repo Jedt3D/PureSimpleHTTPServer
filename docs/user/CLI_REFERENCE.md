@@ -1,4 +1,4 @@
-# CLI Reference — PureSimpleHTTPServer v2.3.1
+# CLI Reference — PureSimpleHTTPServer v2.4.0
 
 This document describes every command-line flag and the legacy positional argument. Flags may appear in any order and can be freely combined.
 
@@ -28,6 +28,15 @@ This document describes every command-line flag and the legacy positional argume
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
 | `--no-gzip` | Boolean flag | off | Disable dynamic gzip compression |
+
+**Security & API:**
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--health PATH` | String | _(disabled)_ | Health check endpoint returning `{"status":"ok"}` |
+| `--cors` | Boolean flag | off | Enable permissive CORS (`Access-Control-Allow-Origin: *`) |
+| `--cors-origin ORIGIN` | String | _(disabled)_ | Enable CORS restricted to a specific origin |
+| `--security-headers` | Boolean flag | off | Add security headers to all responses |
 
 **Logging:**
 
@@ -331,6 +340,109 @@ Loads URL rewrite and redirect rules from the specified file. Rules are evaluate
 
 ---
 
+## Security & API
+
+### `--health PATH`
+
+**Type:** String (URL path)
+**Default:** disabled
+
+Registers a health check endpoint at PATH. Requests to this path are short-circuited early in the middleware chain with a `200 OK` response and a JSON body `{"status":"ok"}`. All other paths are unaffected.
+
+This is intended for load balancer health probes (Caddy, nginx, AWS ALB, Kubernetes). The endpoint is placed early in the chain (slot 2, after Rewrite) so it skips all file-serving logic.
+
+```bash
+# Register /healthz as the health check endpoint
+./PureSimpleHTTPServer --health /healthz
+
+# Test
+curl http://localhost:8080/healthz
+# {"status":"ok"}
+
+# Custom path for Kubernetes
+./PureSimpleHTTPServer --health /_health
+
+# Combine with reverse proxy setup
+./PureSimpleHTTPServer --health /healthz --root /var/www --port 8080
+```
+
+---
+
+### `--cors`
+
+**Type:** Boolean flag (presence enables it)
+**Default:** off
+
+Enables permissive Cross-Origin Resource Sharing (CORS) headers. All responses include `Access-Control-Allow-Origin: *`. OPTIONS preflight requests are short-circuited with a `204 No Content` response containing the full set of CORS headers.
+
+Use `--cors-origin` instead if you need to restrict to a specific origin.
+
+```bash
+# Enable permissive CORS for development
+./PureSimpleHTTPServer --cors
+
+# Combine with SPA mode
+./PureSimpleHTTPServer --root ./build --spa --cors
+
+# Test preflight
+curl -X OPTIONS http://localhost:8080/ -v
+# 204 No Content with Access-Control-Allow-Origin: *
+```
+
+---
+
+### `--cors-origin ORIGIN`
+
+**Type:** String (origin URL)
+**Default:** disabled
+
+Enables CORS restricted to a specific origin. Takes precedence over `--cors` when both are set. The origin should be a full URL including scheme (e.g., `https://example.com`).
+
+```bash
+# Allow only requests from https://example.com
+./PureSimpleHTTPServer --cors-origin https://example.com
+
+# Allow requests from a specific development server
+./PureSimpleHTTPServer --cors-origin http://localhost:3000
+
+# Test
+curl -H "Origin: https://example.com" http://localhost:8080/ -v
+# Access-Control-Allow-Origin: https://example.com
+```
+
+---
+
+### `--security-headers`
+
+**Type:** Boolean flag (presence enables it)
+**Default:** off
+
+Appends a set of common security headers to every handled response:
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME type sniffing |
+| `X-Frame-Options` | `DENY` | Prevent clickjacking |
+| `X-XSS-Protection` | `1; mode=block` | Legacy XSS filter |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Safe referrer default |
+| `Cross-Origin-Opener-Policy` | `same-origin` | Prevent cross-origin window access |
+
+Default is off because users behind a reverse proxy (Caddy, nginx) may already have these headers configured at the proxy level.
+
+```bash
+# Enable security headers for direct-to-internet deployments
+./PureSimpleHTTPServer --security-headers
+
+# Combine with CORS
+./PureSimpleHTTPServer --cors --security-headers
+
+# Full production setup
+./PureSimpleHTTPServer --root /var/www --security-headers --health /healthz \
+  --log /var/log/pshs/access.log
+```
+
+---
+
 ## TLS
 
 ### `--tls-cert FILE`
@@ -438,7 +550,9 @@ The following command illustrates a production-like invocation combining multipl
   --log-keep 30 \
   --pid-file /var/run/pshs.pid \
   --clean-urls \
-  --rewrite /etc/pshs/rewrite.conf
+  --rewrite /etc/pshs/rewrite.conf \
+  --health /healthz \
+  --security-headers
 ```
 
 What each flag does in this example:
@@ -455,6 +569,8 @@ What each flag does in this example:
 | `--pid-file /var/run/pshs.pid` | Allow init scripts to send signals to the process |
 | `--clean-urls` | Serve `/about` when the file on disk is `/about.html` |
 | `--rewrite /etc/pshs/rewrite.conf` | Apply custom redirect and rewrite rules |
+| `--health /healthz` | Respond to load balancer health probes at `/healthz` |
+| `--security-headers` | Add security headers to all responses |
 
 A minimal SPA deployment with just the essential flags:
 

@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.3.1 — Extension Guide
+# PureSimpleHTTPServer v2.4.0 — Extension Guide
 
 This document is a developer reference for extending PureSimpleHTTPServer.
 The target audience is PureBasic developers who have the source and want to
@@ -20,7 +20,7 @@ in the `ServerConfig` structure defined in `Types.pbi`.
 ```purebasic
 Structure ServerConfig
   ; ... existing fields ...
-  CorsEnabled.i    ; #True to add CORS headers to every response
+  RateLimit.i     ; #True to enable rate limiting headers
 EndStructure
 ```
 
@@ -29,7 +29,7 @@ EndStructure
 ```purebasic
 Procedure LoadDefaults(*cfg.ServerConfig)
   ; ... existing defaults ...
-  *cfg\CorsEnabled = #False
+  *cfg\RateLimit = #False
 EndProcedure
 ```
 
@@ -37,15 +37,15 @@ EndProcedure
 
 ```purebasic
 ; Boolean flag — no argument
-ElseIf param = "--cors"
-  *cfg\CorsEnabled = #True
+ElseIf param = "--rate-limit"
+  *cfg\RateLimit = #True
 ```
 
 ### Step 4 — Use the field in your middleware or main.pb
 
 ```purebasic
-If *cfg\CorsEnabled
-  ; apply CORS headers
+If *cfg\RateLimit
+  ; apply rate limit headers
 EndIf
 ```
 
@@ -76,16 +76,16 @@ Procedure.i Middleware_YourFeature(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
 EndProcedure
 ```
 
-**Example — CORS headers (post-processing):**
+**Example — RateLimit headers (post-processing):**
 
 ```purebasic
-Procedure.i Middleware_Cors(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+Procedure.i Middleware_RateLimit(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   ; Let downstream produce the response first
   Protected result.i = CallNext(*req, *resp, *mCtx)
 
-  ; Then append CORS headers to whatever was produced
+  ; Then append rate limit headers to whatever was produced
   If *resp\Handled
-    *resp\Headers + "Access-Control-Allow-Origin: *" + #CRLF$
+    *resp\Headers + "X-RateLimit-Remaining: 99" + #CRLF$
   EndIf
 
   ProcedureReturn result
@@ -100,11 +100,14 @@ Add one line at the correct position in `BuildChain()` (in `Middleware.pbi`):
 Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
+  RegisterMiddleware(@Middleware_HealthCheck())
   RegisterMiddleware(@Middleware_IndexFile())
   RegisterMiddleware(@Middleware_CleanUrls())
   RegisterMiddleware(@Middleware_SpaFallback())
   RegisterMiddleware(@Middleware_HiddenPath())
-  RegisterMiddleware(@Middleware_Cors())        ; ← new
+  RegisterMiddleware(@Middleware_Cors())
+  RegisterMiddleware(@Middleware_SecurityHeaders())
+  RegisterMiddleware(@Middleware_RateLimit())       ; ← new
   RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_GzipSidecar())
   RegisterMiddleware(@Middleware_GzipCompress())
@@ -127,7 +130,7 @@ EndProcedure
 Create a `ProcedureUnit` in `tests/test_middleware.pb`:
 
 ```purebasic
-ProcedureUnit Cors_AddsHeader()
+ProcedureUnit RateLimit_AddsHeader()
   Protected cfg.ServerConfig
   InitTestCfg(@cfg)
 
@@ -143,8 +146,8 @@ ProcedureUnit Cors_AddsHeader()
   ; Register a dummy terminal handler
   g_ChainCount = 0
 
-  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
-  Assert(FindString(resp\Headers, "Access-Control-Allow-Origin") > 0, "CORS header present")
+  Protected result.i = Middleware_RateLimit(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "X-RateLimit-Remaining") > 0, "Rate limit header present")
   FreeResp(@resp)
 EndProcedureUnit
 ```

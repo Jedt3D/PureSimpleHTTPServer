@@ -7,6 +7,13 @@ All notable changes to PureSimpleHTTPServer are documented here.
 Format: vX.Y.Z — YYYY-MM-DD HH:MM
 
 --------------------------------------------------------------------------------
+v2.4.0 — 2026-03-17
+  Health check endpoint (--health PATH), returns {"status":"ok"}
+  CORS support (--cors, --cors-origin ORIGIN) with OPTIONS preflight (204)
+  Security headers (--security-headers): nosniff, X-Frame-Options, XSS, Referrer-Policy, COOP
+  #HTTP_204 status code; RunRequest allows OPTIONS method
+  14 middleware in chain (was 11); 136 tests (was 124)
+
 v2.3.1 — 2026-03-17
   Production deployment configs (Caddyfile, launch.sh, systemd template)
   Deployment guide with standalone, HTTPS, and reverse proxy modes

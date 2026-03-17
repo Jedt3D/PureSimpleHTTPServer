@@ -6,6 +6,32 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v2.4.0 — 2026-03-17
+
+### Health Check, CORS, and Security Headers Middleware
+
+**Added**
+- `Middleware_HealthCheck` — short-circuits requests matching `--health PATH` with `200 {"status":"ok"}` for load balancer probes (Caddy, nginx, AWS ALB, Kubernetes)
+- `Middleware_Cors` — hybrid middleware: OPTIONS preflight returns 204 with CORS headers; GET responses get `Access-Control-Allow-Origin` appended (post-processing)
+- `Middleware_SecurityHeaders` — post-processing middleware appending `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection: 1; mode=block`, `Referrer-Policy: strict-origin-when-cross-origin`, `Cross-Origin-Opener-Policy: same-origin`
+- `#HTTP_204 = 204` status code in `Global.pbi`; `Case 204 : "No Content"` in `StatusText()`
+- 4 new `ServerConfig` fields: `HealthPath.s`, `CorsEnabled.i`, `CorsOrigin.s`, `SecurityHeaders.i`
+- 4 new CLI flags: `--health PATH`, `--cors`, `--cors-origin ORIGIN`, `--security-headers`
+- `RunRequest()` method guard now allows `OPTIONS` method (for CORS preflight)
+
+**Changed**
+- `BuildChain()` registers 14 middleware (was 11): HealthCheck at slot 2, Cors at slot 7, SecurityHeaders at slot 8
+- Version bumped to `"2.4.0"`
+- 136 unit tests across 13 test files; all pass (was 124)
+
+**Tests**
+- 12 new tests in `test_middleware.pb`:
+  - Health check: match returns 200 JSON, non-match passes through, disabled passes through, custom path works
+  - CORS: OPTIONS returns 204 with wildcard, OPTIONS with specific origin, GET gets CORS headers, disabled OPTIONS passes through, disabled GET has no headers
+  - Security headers: enabled adds all 5 headers, disabled adds none, enabled + not-handled adds none
+
+---
+
 ## v2.3.1 — 2026-03-17
 
 ### Phase 7 — Production Deployment Configs

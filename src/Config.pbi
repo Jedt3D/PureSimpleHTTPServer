@@ -63,6 +63,11 @@ Procedure LoadDefaults(*cfg.ServerConfig)
   *cfg\AutoTlsDomain  = ""
   ; Phase 6: gzip default
   *cfg\NoGzip         = #False
+  ; v2.4.0: health check, CORS, security headers
+  *cfg\HealthPath     = ""
+  *cfg\CorsEnabled    = #False
+  *cfg\CorsOrigin     = ""
+  *cfg\SecurityHeaders = #False
 EndProcedure
 
 ; ParseLogLevel(s.s) — convert level name to integer (0 if unrecognized)
@@ -169,6 +174,23 @@ Procedure.i ParseCLI(*cfg.ServerConfig)
       i + 1
       If i >= count : ProcedureReturn #False : EndIf
       *cfg\AutoTlsDomain = ProgramParameter(i)
+
+    ElseIf param = "--health"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\HealthPath = ProgramParameter(i)
+
+    ElseIf param = "--cors"
+      *cfg\CorsEnabled = #True
+
+    ElseIf param = "--cors-origin"
+      i + 1
+      If i >= count : ProcedureReturn #False : EndIf
+      *cfg\CorsEnabled = #True
+      *cfg\CorsOrigin = ProgramParameter(i)
+
+    ElseIf param = "--security-headers"
+      *cfg\SecurityHeaders = #True
 
     ElseIf param = "--service"
       *cfg\ServiceMode = #True

@@ -1,8 +1,9 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
-;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
+;           Middleware_Rewrite, Middleware_HealthCheck, Middleware_IndexFile,
+;           Middleware_CleanUrls, Middleware_SpaFallback, Middleware_HiddenPath,
+;           Middleware_Cors, Middleware_SecurityHeaders, Middleware_ETag304,
 ;           Middleware_GzipCompress, Middleware_GzipSidecar,
 ;           Middleware_EmbeddedAssets, Middleware_FileServer,
 ;           Middleware_DirectoryListing, PlainWriter, GzipCompressBuffer
@@ -165,6 +166,18 @@ Procedure.i IsCompressibleType(headers.s)
   ProcedureReturn #False
 EndProcedure
 
+; ── Health Check (short-circuit) ──────────────────────────────────────────
+
+; Middleware_HealthCheck — short-circuit health check endpoint with 200 JSON
+Procedure.i Middleware_HealthCheck(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  If *cfg\HealthPath = "" Or *req\Path <> *cfg\HealthPath
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+  FillTextResponse(*resp, #HTTP_200, "application/json; charset=utf-8", ~"{\"status\":\"ok\"}")
+  ProcedureReturn #True
+EndProcedure
+
 ; ── Request Modifiers (pre-processing) ─────────────────────────────────────
 
 ; Middleware_Rewrite — apply URL rewrite/redirect rules
@@ -271,6 +284,63 @@ Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   EndIf
 
   ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
+; ── CORS (hybrid: preflight short-circuit + post-processing) ─────────────
+
+; Middleware_Cors — handle CORS preflight and append CORS headers
+Procedure.i Middleware_Cors(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected origin.s
+
+  If Not *cfg\CorsEnabled
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  origin = *cfg\CorsOrigin
+  If origin = "" : origin = "*" : EndIf
+
+  ; OPTIONS preflight → short-circuit 204
+  If *req\Method = "OPTIONS"
+    *resp\StatusCode = #HTTP_204
+    *resp\Headers    = "Access-Control-Allow-Origin: " + origin + #CRLF$
+    *resp\Headers  + "Access-Control-Allow-Methods: GET, OPTIONS" + #CRLF$
+    *resp\Headers  + "Access-Control-Allow-Headers: Content-Type, If-None-Match, Range" + #CRLF$
+    *resp\Headers  + "Access-Control-Max-Age: 86400" + #CRLF$
+    *resp\Body       = 0
+    *resp\BodySize   = 0
+    *resp\Handled    = #True
+    ProcedureReturn #True
+  EndIf
+
+  ; Normal request → post-process
+  Protected result.i = CallNext(*req, *resp, *mCtx)
+  If *resp\Handled
+    *resp\Headers + "Access-Control-Allow-Origin: " + origin + #CRLF$
+    *resp\Headers + "Access-Control-Expose-Headers: Content-Length, Content-Range, ETag" + #CRLF$
+    *resp\Headers + "Vary: Origin" + #CRLF$
+  EndIf
+  ProcedureReturn result
+EndProcedure
+
+; ── Security Headers (post-processing) ───────────────────────────────────
+
+; Middleware_SecurityHeaders — append security headers to handled responses
+Procedure.i Middleware_SecurityHeaders(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected result.i = CallNext(*req, *resp, *mCtx)
+
+  If Not *cfg\SecurityHeaders Or Not *resp\Handled
+    ProcedureReturn result
+  EndIf
+
+  *resp\Headers + "X-Content-Type-Options: nosniff" + #CRLF$
+  *resp\Headers + "X-Frame-Options: DENY" + #CRLF$
+  *resp\Headers + "X-XSS-Protection: 1; mode=block" + #CRLF$
+  *resp\Headers + "Referrer-Policy: strict-origin-when-cross-origin" + #CRLF$
+  *resp\Headers + "Cross-Origin-Opener-Policy: same-origin" + #CRLF$
+
+  ProcedureReturn result
 EndProcedure
 
 ; ── Conditional Response (short-circuit) ───────────────────────────────────
@@ -582,8 +652,8 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   referer   = GetHeader(req\RawHeaders, "Referer")
   userAgent = GetHeader(req\RawHeaders, "User-Agent")
 
-  ; Only GET is supported — reject everything else before running the chain
-  If req\Method <> "GET"
+  ; Only GET and OPTIONS are supported — reject everything else before running the chain
+  If req\Method <> "GET" And req\Method <> "OPTIONS"
     SendTextResponse(connection, #HTTP_400, "text/plain; charset=utf-8", "400 Bad Request")
     LogAccess(clientIP, req\Method, req\Path, req\Version, #HTTP_400, 0, referer, userAgent)
     ProcedureReturn #False
@@ -638,11 +708,17 @@ Procedure BuildChain()
   g_ChainCount = 0
   ; Request modifiers (pre-processing)
   RegisterMiddleware(@Middleware_Rewrite())
+  ; Health check (short-circuit — early, before file-serving logic)
+  RegisterMiddleware(@Middleware_HealthCheck())
   RegisterMiddleware(@Middleware_IndexFile())
   RegisterMiddleware(@Middleware_CleanUrls())
   RegisterMiddleware(@Middleware_SpaFallback())
   ; Access control (short-circuit)
   RegisterMiddleware(@Middleware_HiddenPath())
+  ; CORS (hybrid: preflight short-circuit + post-processing)
+  RegisterMiddleware(@Middleware_Cors())
+  ; Security headers (post-processing)
+  RegisterMiddleware(@Middleware_SecurityHeaders())
   ; Conditional response (short-circuit)
   RegisterMiddleware(@Middleware_ETag304())
   ; Response sidecar

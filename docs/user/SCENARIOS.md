@@ -1,4 +1,4 @@
-# Scenarios Guide — PureSimpleHTTPServer v2.3.1
+# Scenarios Guide — PureSimpleHTTPServer v2.4.0
 
 Real-world configurations for common deployment patterns. Each scenario is self-contained: read only what you need. Every example assumes the binary is named `PureSimpleHTTPServer` and is in your current directory or `PATH`. Adjust paths to match your environment.
 

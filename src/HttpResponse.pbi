@@ -7,6 +7,7 @@
 Procedure.s StatusText(code.i)
   Select code
     Case 200 : ProcedureReturn "OK"
+    Case 204 : ProcedureReturn "No Content"
     Case 206 : ProcedureReturn "Partial Content"
     Case 301 : ProcedureReturn "Moved Permanently"
     Case 302 : ProcedureReturn "Found"

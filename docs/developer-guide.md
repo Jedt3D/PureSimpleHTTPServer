@@ -10,9 +10,9 @@ receives a parsed request, an empty response buffer, and a context object:
 ```
 Client → TCP → RunRequest() → [chain] → send → free → log
 
-Chain:  Rewrite → IndexFile → CleanUrls → SpaFallback → HiddenPath
-        → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets
-        → FileServer → DirectoryListing
+Chain:  Rewrite → HealthCheck → IndexFile → CleanUrls → SpaFallback
+        → HiddenPath → Cors → SecurityHeaders → ETag304 → GzipSidecar
+        → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing
 ```
 
 A middleware can:
@@ -31,7 +31,7 @@ memory cleanup. Middleware never call `SendNetwork*` directly.
 
 ```
 src/
-  Middleware.pbi    ← chain infra + all 11 middleware + RunRequest
+  Middleware.pbi    ← chain infra + all 14 middleware + RunRequest
   Types.pbi         ← ResponseBuffer, MiddlewareContext structures
   HttpResponse.pbi  ← FillTextResponse() for text responses
   FileServer.pbi    ← utility functions (ResolveIndexFile, BuildETag, IsHiddenPath)
@@ -62,16 +62,16 @@ Procedure.i Middleware_YourFeature(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
 EndProcedure
 ```
 
-**Example — CORS headers (post-processing):**
+**Example — Rate Limiter (post-processing):**
 
 ```purebasic
-Procedure.i Middleware_Cors(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+Procedure.i Middleware_RateLimit(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   ; Let downstream produce the response first
   Protected result.i = CallNext(*req, *resp, *mCtx)
 
-  ; Then append CORS headers to whatever was produced
+  ; Then append rate limit headers to whatever was produced
   If *resp\Handled
-    *resp\Headers + "Access-Control-Allow-Origin: *" + #CRLF$
+    *resp\Headers + "X-RateLimit-Remaining: 99" + #CRLF$
   EndIf
 
   ProcedureReturn result
@@ -86,13 +86,16 @@ Add one line at the correct position in `BuildChain()` (in Middleware.pbi):
 Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
+  RegisterMiddleware(@Middleware_HealthCheck())
   RegisterMiddleware(@Middleware_IndexFile())
   RegisterMiddleware(@Middleware_CleanUrls())
   RegisterMiddleware(@Middleware_SpaFallback())
   RegisterMiddleware(@Middleware_HiddenPath())
-  RegisterMiddleware(@Middleware_Cors())        ; ← new
+  RegisterMiddleware(@Middleware_Cors())
+  RegisterMiddleware(@Middleware_SecurityHeaders())
   RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_GzipSidecar())
+  RegisterMiddleware(@Middleware_GzipCompress())
   RegisterMiddleware(@Middleware_EmbeddedAssets())
   RegisterMiddleware(@Middleware_FileServer())
   RegisterMiddleware(@Middleware_DirectoryListing())
@@ -126,24 +129,30 @@ Pos  Middleware              Type               Why this position
 ───  ──────────────────────  ─────────────────  ─────────────────────────────
  1   Middleware_Rewrite      Request modifier   Rewrite path BEFORE anything
                                                 checks the filesystem
- 2   Middleware_IndexFile    Request modifier   Resolve /dir/ → /dir/index.html
+ 2   Middleware_HealthCheck  Short-circuit      Early — skips all file-serving
+                                                logic for load balancer probes
+ 3   Middleware_IndexFile    Request modifier   Resolve /dir/ → /dir/index.html
                                                 BEFORE clean URLs tries .html
- 3   Middleware_CleanUrls    Request modifier   Try /about → /about.html BEFORE
+ 4   Middleware_CleanUrls    Request modifier   Try /about → /about.html BEFORE
                                                 SPA fallback rewrites everything
- 4   Middleware_SpaFallback  Request modifier   Last-resort path rewrite — only
+ 5   Middleware_SpaFallback  Request modifier   Last-resort path rewrite — only
                                                 if file still not found
- 5   Middleware_HiddenPath   Access control     Block .git/.env AFTER path is
+ 6   Middleware_HiddenPath   Access control     Block .git/.env AFTER path is
                                                 finalized by all modifiers
- 6   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
+ 7   Middleware_Cors         Hybrid             OPTIONS preflight short-circuit;
+                                                GET post-processing (CORS headers)
+ 8   Middleware_SecHeaders   Post-processing    Append security headers after CORS
+                                                so both header sets can coexist
+ 9   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
                                                 (saves disk I/O on cache hits)
- 7   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
+10   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
                                                 (pre-compressed is cheaper)
- 8   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+11   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
                                                 fills it (skips if already encoded)
- 9   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
-10   Middleware_FileServer   Terminal handler   Read file from disk — primary
+12   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+13   Middleware_FileServer   Terminal handler   Read file from disk — primary
                                                 content source
-11   Middleware_DirListing   Terminal handler   Directory listing — last resort
+14   Middleware_DirListing   Terminal handler   Directory listing — last resort
                                                 before 404
 ```
 
@@ -263,8 +272,39 @@ runs before `Middleware_GzipCompress` in the chain and short-circuits.
 **Chain position:**
 
 ```
-... → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → ...
+... → Cors → SecurityHeaders → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → ...
 ```
+
+## Health Check, CORS, and Security Headers (v2.4.0+)
+
+Three middleware added in v2.4.0 for production deployments:
+
+### Middleware_HealthCheck (slot 2)
+
+Short-circuits requests matching `--health PATH` with `200 {"status":"ok"}`.
+Placed early (after Rewrite) so health probes skip all file-serving logic.
+Infrastructure probes from Caddy, nginx, AWS ALB, and Kubernetes hit this endpoint.
+
+### Middleware_Cors (slot 7)
+
+Hybrid middleware handling CORS:
+- **OPTIONS preflight** → short-circuit with 204 and CORS headers
+- **Normal requests** → post-process: call `CallNext()`, then append CORS headers
+
+Enabled via `--cors` (permissive, `Origin: *`) or `--cors-origin ORIGIN` (restricted).
+`RunRequest()` was updated to allow the `OPTIONS` method through the method guard.
+
+### Middleware_SecurityHeaders (slot 8)
+
+Post-processing middleware that appends security headers to handled responses:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Cross-Origin-Opener-Policy: same-origin`
+
+Enabled via `--security-headers`. Default is off — users behind a reverse proxy
+may already have these headers from Caddy/nginx.
 
 ## Utility Functions
 

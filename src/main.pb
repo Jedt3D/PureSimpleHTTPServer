@@ -10,6 +10,8 @@
 ;                          [--clean-urls] [--rewrite FILE]
 ;                          [--tls-cert FILE] [--tls-key FILE]
 ;                          [--auto-tls DOMAIN]
+;                          [--health PATH] [--cors] [--cors-origin ORIGIN]
+;                          [--security-headers]
 ;                          [--service] [--service-name NAME]
 ;   ./PureSimpleHTTPServer [port]     (legacy: bare port number, default 8080)
 ;
@@ -89,6 +91,8 @@ Procedure Main()
     PrintN("                            [--clean-urls] [--rewrite FILE]")
     PrintN("                            [--tls-cert FILE --tls-key FILE]")
     PrintN("                            [--auto-tls DOMAIN]")
+    PrintN("                            [--health PATH] [--cors] [--cors-origin ORIGIN]")
+    PrintN("                            [--security-headers]")
     PrintN("                            [--service] [--service-name NAME]")
     End 1
   EndIf
@@ -337,6 +341,19 @@ Procedure Main()
   EndIf
   If g_Config\RewriteFile <> ""
     PrintN("Rewrite:    " + g_Config\RewriteFile + " (" + Str(GlobalRuleCount()) + " rules)")
+  EndIf
+  If g_Config\HealthPath <> ""
+    PrintN("Health:     " + g_Config\HealthPath)
+  EndIf
+  If g_Config\CorsEnabled
+    If g_Config\CorsOrigin <> ""
+      PrintN("CORS:       enabled (origin: " + g_Config\CorsOrigin + ")")
+    Else
+      PrintN("CORS:       enabled (origin: *)")
+    EndIf
+  EndIf
+  If g_Config\SecurityHeaders
+    PrintN("Security:   security headers enabled")
   EndIf
   PrintN("Press Ctrl+C to stop")
   PrintN("")

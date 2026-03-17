@@ -18,6 +18,10 @@ Procedure InitTestCfg(*cfg.ServerConfig, root.s)
   *cfg\CleanUrls      = #False
   *cfg\SpaFallback    = #False
   *cfg\BrowseEnabled  = #False
+  *cfg\HealthPath     = ""
+  *cfg\CorsEnabled    = #False
+  *cfg\CorsOrigin     = ""
+  *cfg\SecurityHeaders = #False
 EndProcedure
 
 ; Helper: initialize an empty ResponseBuffer
@@ -312,5 +316,189 @@ ProcedureUnit SpaFallback_ExistingFileUntouched()
 
   Protected result.i = Middleware_SpaFallback(@req, @resp, @mCtx)
   Assert(req\Path = "/index.html", "existing file should not be rewritten; got: " + req\Path)
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── Middleware_HealthCheck ────────────────────────────────────────────────
+
+ProcedureUnit HealthCheck_MatchReturns200Json()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\HealthPath = "/healthz"
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/healthz" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_HealthCheck(@req, @resp, @mCtx)
+  Assert(result = #True, "should handle health check path")
+  Assert(resp\StatusCode = #HTTP_200, "should be 200; got: " + Str(resp\StatusCode))
+  Assert(resp\Handled = #True, "should be marked handled")
+  Assert(FindString(resp\Headers, "application/json") > 0, "Content-Type should be JSON")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit HealthCheck_NonMatchPassThrough()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\HealthPath = "/healthz"
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/other" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_HealthCheck(@req, @resp, @mCtx)
+  Assert(result = #False, "should pass through non-matching path")
+  Assert(resp\Handled = #False, "resp should not be handled")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit HealthCheck_DisabledPassThrough()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; HealthPath = "" (disabled by default)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/healthz" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_HealthCheck(@req, @resp, @mCtx)
+  Assert(result = #False, "should pass through when disabled")
+  Assert(resp\Handled = #False, "resp should not be handled")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit HealthCheck_CustomPath()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\HealthPath = "/_health"
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/_health" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_HealthCheck(@req, @resp, @mCtx)
+  Assert(result = #True, "should handle custom health path")
+  Assert(resp\StatusCode = #HTTP_200, "should be 200; got: " + Str(resp\StatusCode))
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── Middleware_Cors ───────────────────────────────────────────────────────
+
+ProcedureUnit Cors_OptionsReturns204WithWildcard()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\CorsEnabled = #True
+  Protected req.HttpRequest : req\Method = "OPTIONS" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
+  Assert(result = #True, "OPTIONS should be handled")
+  Assert(resp\StatusCode = #HTTP_204, "should be 204; got: " + Str(resp\StatusCode))
+  Assert(resp\Handled = #True, "should be marked handled")
+  Assert(FindString(resp\Headers, "Access-Control-Allow-Origin: *") > 0, "should have wildcard origin")
+  Assert(FindString(resp\Headers, "Access-Control-Allow-Methods:") > 0, "should have Allow-Methods")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit Cors_OptionsWithSpecificOrigin()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\CorsEnabled = #True
+  cfg\CorsOrigin = "https://example.com"
+  Protected req.HttpRequest : req\Method = "OPTIONS" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
+  Assert(result = #True, "OPTIONS should be handled")
+  Assert(resp\StatusCode = #HTTP_204, "should be 204; got: " + Str(resp\StatusCode))
+  Assert(FindString(resp\Headers, "Access-Control-Allow-Origin: https://example.com") > 0, "should use specific origin")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit Cors_GetResponseGetsCorsHeaders()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\CorsEnabled = #True
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/index.html" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  ; Simulate a downstream handler having produced a response
+  resp\StatusCode = #HTTP_200
+  resp\Headers    = "Content-Type: text/html" + #CRLF$
+  resp\Handled    = #True
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  ; Since chain is empty, CallNext returns #False and resp stays as-is (already handled)
+  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "Access-Control-Allow-Origin: *") > 0, "GET response should have CORS origin header")
+  Assert(FindString(resp\Headers, "Vary: Origin") > 0, "GET response should have Vary header")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit Cors_DisabledOptionsPassThrough()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; CorsEnabled = #False (default)
+  Protected req.HttpRequest : req\Method = "OPTIONS" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
+  Assert(result = #False, "disabled CORS should pass through")
+  Assert(resp\Handled = #False, "resp should not be handled")
+  Assert(FindString(resp\Headers, "Access-Control") = 0, "should have no CORS headers")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit Cors_DisabledGetNoCorsHeaders()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; CorsEnabled = #False (default)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_Cors(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "Access-Control") = 0, "disabled CORS should add no headers")
+  FreeResp(@resp)
+EndProcedureUnit
+
+; ── Middleware_SecurityHeaders ────────────────────────────────────────────
+
+ProcedureUnit SecurityHeaders_EnabledAddsAllHeaders()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\SecurityHeaders = #True
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/index.html" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  ; Simulate a downstream handler having produced a response
+  resp\StatusCode = #HTTP_200
+  resp\Headers    = "Content-Type: text/html" + #CRLF$
+  resp\Handled    = #True
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_SecurityHeaders(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "X-Content-Type-Options: nosniff") > 0, "should have nosniff")
+  Assert(FindString(resp\Headers, "X-Frame-Options: DENY") > 0, "should have frame deny")
+  Assert(FindString(resp\Headers, "X-XSS-Protection: 1; mode=block") > 0, "should have XSS protection")
+  Assert(FindString(resp\Headers, "Referrer-Policy: strict-origin-when-cross-origin") > 0, "should have referrer policy")
+  Assert(FindString(resp\Headers, "Cross-Origin-Opener-Policy: same-origin") > 0, "should have COOP")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit SecurityHeaders_DisabledNoHeaders()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  ; SecurityHeaders = #False (default)
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  ; Simulate a handled response
+  resp\StatusCode = #HTTP_200
+  resp\Handled    = #True
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_SecurityHeaders(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "X-Content-Type-Options") = 0, "disabled should have no security headers")
+  Assert(FindString(resp\Headers, "X-Frame-Options") = 0, "disabled should have no X-Frame-Options")
+  FreeResp(@resp)
+EndProcedureUnit
+
+ProcedureUnit SecurityHeaders_EnabledNotHandled_NoHeaders()
+  Protected cfg.ServerConfig : InitTestCfg(@cfg, g_MwRoot)
+  cfg\SecurityHeaders = #True
+  Protected req.HttpRequest : req\Method = "GET" : req\Path = "/missing" : req\RawHeaders = ""
+  Protected resp.ResponseBuffer : InitResp(@resp)
+  ; resp\Handled = #False (default — no downstream match)
+  Protected mCtx.MiddlewareContext : InitMCtx(@mCtx, @cfg)
+
+  Protected result.i = Middleware_SecurityHeaders(@req, @resp, @mCtx)
+  Assert(FindString(resp\Headers, "X-Content-Type-Options") = 0, "not-handled should get no security headers")
   FreeResp(@resp)
 EndProcedureUnit

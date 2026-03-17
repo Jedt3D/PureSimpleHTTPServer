@@ -1,5 +1,5 @@
 ================================================================================
-PureSimpleHTTPServer v2.3.1 - Quick Start Guide
+PureSimpleHTTPServer v2.4.0 - Quick Start Guide
 ================================================================================
 
 Welcome to PureSimpleHTTPServer! This guide will help you get started quickly.
@@ -101,6 +101,13 @@ Compression:
 ------------
 --no-gzip          Disable dynamic gzip compression
                    Pre-compressed .gz sidecars are still served.
+
+Security & API:
+--------------
+--health PATH      Health check endpoint (returns {"status":"ok"})
+--cors             Enable permissive CORS (origin: *)
+--cors-origin URL  Enable CORS restricted to specific origin
+--security-headers Add security headers (nosniff, X-Frame-Options, etc.)
 
 
 STOPPING THE SERVER

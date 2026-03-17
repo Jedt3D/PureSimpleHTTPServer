@@ -1,4 +1,4 @@
-# Quick Start — PureSimpleHTTPServer v2.3.1
+# Quick Start — PureSimpleHTTPServer v2.4.0
 
 ## What Is PureSimpleHTTPServer?
 

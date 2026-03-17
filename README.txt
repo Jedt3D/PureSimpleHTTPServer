@@ -1,5 +1,5 @@
 ================================================================================
-PureSimpleHTTPServer v2.3.1 - Windows Distribution
+PureSimpleHTTPServer v2.4.0 - Windows Distribution
 ================================================================================
 
 A fast, single-binary HTTP/1.1 static file server with middleware architecture,
@@ -60,6 +60,12 @@ URL:
   --clean-urls       Enable clean URLs (extensionless paths try .html)
   --rewrite FILE     Load rewrite rules from FILE
 
+Security & API:
+  --health PATH      Health check endpoint returning {"status":"ok"}
+  --cors             Enable CORS (Access-Control-Allow-Origin: *)
+  --cors-origin URL  Enable CORS restricted to specific origin
+  --security-headers Add security headers to all responses
+
 Windows Service:
   --install          Install as Windows service (requires Administrator)
   --uninstall        Uninstall Windows service
@@ -75,7 +81,7 @@ FEATURES
 - HTTP/1.1 static file serving with Content-Type, ETag, Last-Modified
 - 304 Not Modified via If-None-Match
 - 206 Partial Content via Range header
-- Middleware architecture with 11-stage ordered chain
+- Middleware architecture with 14-stage ordered chain
 - HTTPS with manual certificates or automatic via acme.sh
 - Dynamic gzip compression for text, JSON, JS, XML, SVG
 - Pre-compressed .gz sidecar support (Content-Encoding: gzip)
@@ -89,6 +95,9 @@ FEATURES
 - URL rewriting and redirecting via rewrite.conf
 - Per-directory rewrite rules
 - Clean URLs (--clean-urls: /page -> /page.html)
+- Health check endpoint for load balancer probes (--health PATH)
+- CORS support with OPTIONS preflight (--cors, --cors-origin ORIGIN)
+- Security headers (--security-headers)
 - Native Windows Service support with Event Log integration
 
 

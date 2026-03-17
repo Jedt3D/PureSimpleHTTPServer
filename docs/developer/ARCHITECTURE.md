@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.3.1 — Architecture Reference
+# PureSimpleHTTPServer v2.4.0 — Architecture Reference
 
 > **New to the codebase?** Start with [`BUILD_OUR_HTTP_SERVER.md`](BUILD_OUR_HTTP_SERVER.md) —
 > a step-by-step tutorial that builds a server from scratch using the same libraries.
@@ -10,7 +10,7 @@ PureSimpleHTTPServer is a single-binary HTTP/1.1 static file server written enti
 Key design properties:
 
 - **Single binary.** No external runtime, no configuration file required.
-- **Middleware chain.** Every request flows through an ordered chain of 11 middleware. Each middleware can pre-process, short-circuit, or post-process the request/response.
+- **Middleware chain.** Every request flows through an ordered chain of 14 middleware. Each middleware can pre-process, short-circuit, or post-process the request/response.
 - **Thread-per-connection.** Each complete HTTP request is handed off to a dedicated OS thread.
 - **C backend.** PureBasic's C backend produces portable C code. This matters for `ImportC ""` blocks used for `getpid()` and `signal()`.
 - **TLS support.** Manual certificates or automatic HTTPS via acme.sh integration.
@@ -56,7 +56,7 @@ main.pb
  |                         CleanupRewriteEngine, GlobalRuleCount)
  |     depends on: Global.pbi, Types.pbi
  +-- Middleware.pbi       (RegisterMiddleware, CallNext, RunRequest, BuildChain,
- |                         all 11 middleware, PlainWriter, GzipCompressBuffer)
+ |                         all 14 middleware, PlainWriter, GzipCompressBuffer)
  |     depends on: Global.pbi, Types.pbi, HttpParser.pbi, HttpResponse.pbi,
  |                 MimeTypes.pbi, DateHelper.pbi, Logger.pbi, FileServer.pbi,
  |                 DirectoryListing.pbi, RangeParser.pbi, EmbeddedAssets.pbi,
@@ -87,16 +87,20 @@ Chain:
  ───  ──────────────────────  ─────────────────  ─────────────────────────────
   1   Middleware_Rewrite      Request modifier   Rewrite path BEFORE anything
                                                  checks the filesystem
-  2   Middleware_IndexFile    Request modifier   Resolve /dir/ → /dir/index.html
-  3   Middleware_CleanUrls    Request modifier   Try /about → /about.html
-  4   Middleware_SpaFallback  Request modifier   Last-resort path rewrite
-  5   Middleware_HiddenPath   Access control     Block .git/.env AFTER path finalized
-  6   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
-  7   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
-  8   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
-  9   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
- 10   Middleware_FileServer   Terminal handler   Read file from disk
- 11   Middleware_DirListing   Terminal handler   Directory listing — last resort
+  2   Middleware_HealthCheck  Short-circuit      Early — skips all file-serving
+                                                 logic for load balancer probes
+  3   Middleware_IndexFile    Request modifier   Resolve /dir/ → /dir/index.html
+  4   Middleware_CleanUrls    Request modifier   Try /about → /about.html
+  5   Middleware_SpaFallback  Request modifier   Last-resort path rewrite
+  6   Middleware_HiddenPath   Access control     Block .git/.env AFTER path finalized
+  7   Middleware_Cors         Hybrid             OPTIONS preflight + CORS post-processing
+  8   Middleware_SecHeaders   Post-processing    Append security headers to responses
+  9   Middleware_ETag304      Conditional resp   Return 304 BEFORE reading file
+ 10   Middleware_GzipSidecar  Response sidecar   Serve .gz BEFORE full file read
+ 11   Middleware_GzipCompress Post-processing    Compress resp\Body after downstream
+ 12   Middleware_EmbedAssets  Terminal handler   Try in-memory pack BEFORE disk
+ 13   Middleware_FileServer   Terminal handler   Read file from disk
+ 14   Middleware_DirListing   Terminal handler   Directory listing — last resort
 ```
 
 ### How middleware work
@@ -106,6 +110,7 @@ Each middleware receives `(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Middlew
 - **Pre-process:** Modify `*req\Path`, then call `CallNext()`.
 - **Short-circuit:** Fill `*resp` and return `#True` without calling `CallNext()`.
 - **Post-process:** Call `CallNext()` first, then modify `*resp` (e.g., GzipCompress).
+- **Hybrid:** Short-circuit for some methods (e.g., OPTIONS), post-process for others (e.g., Cors).
 - **Pass through:** Just call `CallNext()` and return its result.
 
 The chain runner (`RunRequest`) is the **single point** of network I/O and memory cleanup. Middleware never call `SendNetwork*` directly.
@@ -133,7 +138,7 @@ Calls `g_Handler(client, raw)`, which invokes `RunRequestWrapper` → `RunReques
 ### 4.5 RunRequest (worker thread)
 
 1. Parse request via `ParseHttpRequest`
-2. Reject non-GET with 400
+2. Reject non-GET/OPTIONS with 400
 3. Initialize empty `ResponseBuffer` and `MiddlewareContext`
 4. Run middleware chain via `CallNext`
 5. Send response via `PlainWriter` (headers + body)

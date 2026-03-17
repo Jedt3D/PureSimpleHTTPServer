@@ -85,4 +85,9 @@ Structure ServerConfig
   AutoTlsDomain.s    ; Domain for automatic certificate management ("" = disabled)
   ; --- Phase 6: Dynamic gzip ---
   NoGzip.i           ; #True to disable dynamic gzip compression
+  ; --- v2.4.0: health check, CORS, security headers ---
+  HealthPath.s       ; Health check endpoint path ("" = disabled)
+  CorsEnabled.i      ; #True to enable CORS headers
+  CorsOrigin.s       ; Specific CORS origin ("" = use "*" when enabled)
+  SecurityHeaders.i  ; #True to add security headers to responses
 EndStructure

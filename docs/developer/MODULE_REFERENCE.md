@@ -1,4 +1,4 @@
-# PureSimpleHTTPServer v2.3.1 — Module Reference
+# PureSimpleHTTPServer v2.4.0 — Module Reference
 
 This document describes every `.pbi` module in `src/` and the entry-point `main.pb`. For each module the public API (procedures and exported globals), the compile-time dependencies, and notable implementation details are listed.
 
@@ -20,8 +20,8 @@ definitions. No procedures. No globals.
 | Constant | Value | Meaning |
 |---|---|---|
 | `#APP_NAME` | `"PureSimpleHTTPServer"` | Used in `Server:` response header |
-| `#APP_VERSION` | `"2.3.1"` | Used in startup banner |
-| `#HTTP_200` ... `#HTTP_500` | 200-500 | HTTP status code shorthand |
+| `#APP_VERSION` | `"2.4.0"` | Used in startup banner |
+| `#HTTP_200` ... `#HTTP_500` | 200-500 | HTTP status code shorthand. `#HTTP_204` (204 No Content) added in v2.4.0 |
 | `#RECV_BUFFER_SIZE` | 65536 | Per-connection TCP receive buffer (64 KB) |
 | `#SEND_CHUNK_SIZE` | 65536 | File send chunk size (64 KB) |
 | `#MAX_HEADER_SIZE` | 8192 | Maximum accepted request header block (8 KB) |
@@ -126,6 +126,10 @@ Vtable-based writer abstraction for body output.
 | `TlsKey` | `.s` | TLS key path (v2.1.0+) |
 | `AutoTlsDomain` | `.s` | Auto-TLS domain (v2.2.0+) |
 | `NoGzip` | `.i` | Disable gzip flag (v2.3.0+) |
+| `HealthPath` | `.s` | Health check endpoint path (v2.4.0+) |
+| `CorsEnabled` | `.i` | CORS enabled flag (v2.4.0+) |
+| `CorsOrigin` | `.s` | CORS specific origin (v2.4.0+) |
+| `SecurityHeaders` | `.i` | Security headers flag (v2.4.0+) |
 
 ### Dependencies
 
@@ -293,6 +297,7 @@ Returns a string like `"Sat, 14 Mar 2026 00:00:00 GMT"`.
 Recognized flags: `--port`, `--root`, `--browse`, `--spa`, `--log`, `--error-log`,
 `--log-level`, `--log-size`, `--log-keep`, `--no-log-daily`, `--pid-file`,
 `--clean-urls`, `--rewrite`, `--tls-cert`, `--tls-key`, `--auto-tls`, `--no-gzip`,
+`--health`, `--cors`, `--cors-origin`, `--security-headers`,
 `--service`, `--service-name`.
 
 ### Dependencies: `Global.pbi`, `Types.pbi`
@@ -315,28 +320,31 @@ Recognized flags: `--port`, `--root`, `--browse`, `--spa`, `--log`, `--error-log
 
 ## Middleware.pbi (v2.0.0+)
 
-**Purpose:** Middleware chain infrastructure, all 11 middleware, and utility functions.
+**Purpose:** Middleware chain infrastructure, all 14 middleware, and utility functions.
 
 ### Chain Infrastructure
 
 #### `RegisterMiddleware(*handler)` — Add middleware to chain during startup.
 #### `CallNext(*req, *resp, *mCtx) -> .i` — Advance to next middleware.
 #### `RunRequest(connection.i, raw.s, *cfg.ServerConfig) -> .i` — Chain runner: parse → chain → send → free → log.
-#### `BuildChain()` — Register all 11 middleware in directive order.
+#### `BuildChain()` — Register all 14 middleware in directive order.
 
 ### Middleware (in chain order)
 
 1. `Middleware_Rewrite` — URL rewrite/redirect rules
-2. `Middleware_IndexFile` — Directory → index file resolution
-3. `Middleware_CleanUrls` — Extensionless → `.html` fallback
-4. `Middleware_SpaFallback` — 404 → root index for SPAs
-5. `Middleware_HiddenPath` — Block `.git`/`.env` paths (403)
-6. `Middleware_ETag304` — Return 304 on ETag match
-7. `Middleware_GzipSidecar` — Serve pre-compressed `.gz` files
-8. `Middleware_GzipCompress` — Dynamic gzip compression (post-processing)
-9. `Middleware_EmbeddedAssets` — Serve from in-memory pack
-10. `Middleware_FileServer` — Serve from disk (200 + 206 range)
-11. `Middleware_DirectoryListing` — HTML directory listing
+2. `Middleware_HealthCheck` — Short-circuit health check endpoint (200 JSON)
+3. `Middleware_IndexFile` — Directory → index file resolution
+4. `Middleware_CleanUrls` — Extensionless → `.html` fallback
+5. `Middleware_SpaFallback` — 404 → root index for SPAs
+6. `Middleware_HiddenPath` — Block `.git`/`.env` paths (403)
+7. `Middleware_Cors` — CORS preflight (204) and header post-processing
+8. `Middleware_SecurityHeaders` — Append security headers to responses
+9. `Middleware_ETag304` — Return 304 on ETag match
+10. `Middleware_GzipSidecar` — Serve pre-compressed `.gz` files
+11. `Middleware_GzipCompress` — Dynamic gzip compression (post-processing)
+12. `Middleware_EmbeddedAssets` — Serve from in-memory pack
+13. `Middleware_FileServer` — Serve from disk (200 + 206 range)
+14. `Middleware_DirectoryListing` — HTML directory listing
 
 ### Utility Functions
 
