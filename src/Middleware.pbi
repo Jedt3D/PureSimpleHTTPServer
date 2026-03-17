@@ -2,8 +2,8 @@
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
-;           Middleware_HiddenPath, Middleware_ETag304, Middleware_GzipSidecar,
-;           Middleware_HandleAll
+;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
+;           Middleware_GzipSidecar, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -60,7 +60,7 @@ Procedure.s BuildFsPath(docRoot.s, urlPath.s)
   CompilerEndIf
 EndProcedure
 
-; ── Extracted Middleware ────────────────────────────────────────────────────
+; ── Request Modifiers (pre-processing) ─────────────────────────────────────
 
 ; Middleware_Rewrite — apply URL rewrite/redirect rules
 ; Redirect → short-circuit with 3xx. Rewrite → modify req\Path, CallNext.
@@ -131,6 +131,30 @@ Procedure.i Middleware_CleanUrls(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
+; Middleware_SpaFallback — rewrite to root index when file not found (SPA mode)
+Procedure.i Middleware_SpaFallback(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected fsPath.s, resolvedPath.s
+
+  If *cfg\SpaFallback
+    fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
+    If FileSize(fsPath) < 0
+      resolvedPath = ResolveIndexFile(BuildFsPath(*cfg\RootDirectory, "/"), *cfg\IndexFiles)
+      If resolvedPath <> ""
+        *req\Path = "/" + GetFilePart(resolvedPath)
+      Else
+        LogError("error", "Not found (SPA: no root index): " + *req\Path)
+        FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
+        ProcedureReturn #True
+      EndIf
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
+; ── Access Control (short-circuit) ─────────────────────────────────────────
+
 ; Middleware_HiddenPath — block requests to hidden paths (.git, .env, etc.)
 Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
@@ -143,6 +167,8 @@ Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
 
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
+
+; ── Conditional Response (short-circuit) ───────────────────────────────────
 
 ; Middleware_ETag304 — return 304 Not Modified when ETag matches
 Procedure.i Middleware_ETag304(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
@@ -165,6 +191,8 @@ Procedure.i Middleware_ETag304(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.Mid
 
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
+
+; ── Response Sidecar ───────────────────────────────────────────────────────
 
 ; Middleware_GzipSidecar — serve pre-compressed .gz sidecar files
 Procedure.i Middleware_GzipSidecar(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
@@ -226,7 +254,7 @@ EndProcedure
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
   Protected urlPath.s, docRoot.s, indexList.s
-  Protected fsPath.s, resolvedPath.s, ext.s, mimeType.s
+  Protected fsPath.s, ext.s, mimeType.s
   Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
   Protected *buffer, file.i
   Protected rangeHeader.s
@@ -291,23 +319,11 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- File not found ---
+  ; --- File not found (non-SPA — SPA fallback moved to Middleware_SpaFallback) ---
   If fileSize < 0
-    If *cfg\SpaFallback
-      resolvedPath = ResolveIndexFile(docRoot + "/", indexList)
-      If resolvedPath <> ""
-        fsPath   = resolvedPath
-        fileSize = FileSize(fsPath)
-      Else
-        LogError("error", "Not found (SPA: no root index): " + urlPath)
-        FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
-        ProcedureReturn #True
-      EndIf
-    Else
-      LogError("error", "File not found: " + fsPath)
-      FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
-      ProcedureReturn #True
-    EndIf
+    LogError("error", "File not found: " + fsPath)
+    FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
+    ProcedureReturn #True
   EndIf
 
   ; Common metadata
@@ -449,11 +465,16 @@ EndProcedure
 ; BuildChain() — register middleware in directive order (called once at startup)
 Procedure BuildChain()
   g_ChainCount = 0
+  ; Request modifiers (pre-processing)
   RegisterMiddleware(@Middleware_Rewrite())
   RegisterMiddleware(@Middleware_IndexFile())
   RegisterMiddleware(@Middleware_CleanUrls())
+  RegisterMiddleware(@Middleware_SpaFallback())
+  ; Access control (short-circuit)
   RegisterMiddleware(@Middleware_HiddenPath())
+  ; Conditional response (short-circuit)
   RegisterMiddleware(@Middleware_ETag304())
+  ; Response sidecar
   RegisterMiddleware(@Middleware_GzipSidecar())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
