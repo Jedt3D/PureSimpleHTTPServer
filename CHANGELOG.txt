@@ -7,6 +7,41 @@ All notable changes to PureSimpleHTTPServer are documented here.
 Format: vX.Y.Z — YYYY-MM-DD HH:MM
 
 --------------------------------------------------------------------------------
+v2.3.1 — 2026-03-17
+  Production deployment configs (Caddyfile, launch.sh, systemd template)
+  Deployment guide with standalone, HTTPS, and reverse proxy modes
+
+v2.3.0 — 2026-03-17
+  ResponseWriter vtable-based abstraction for pluggable body output
+  Dynamic gzip compression (Middleware_GzipCompress, post-processing)
+  GzipCompressBuffer: zlib-to-gzip conversion with CRC32
+  --no-gzip CLI flag; 11 middleware in chain (was 10)
+
+v2.2.0 — 2026-03-17
+  Automatic HTTPS via acme.sh (--auto-tls DOMAIN)
+  Background certificate renewal (12-hour interval)
+  HTTP redirect server on port 80 (ACME challenges + HTTPS redirect)
+
+v2.1.0 — 2026-03-16
+  HTTPS with manual certificates (--tls-cert, --tls-key)
+  ReadPEMFile, CreateServerWithTLS, TLS globals in TcpServer.pbi
+
+v2.0.0 — 2026-03-16
+  Middleware cleanup, isolation tests (16 new), developer guide
+  Removed Middleware_HandleAll; 124 tests across 13 files
+
+v2.0.0-alpha.2 — 2026-03-16
+  All 10 middleware extracted from HandleAll
+
+v2.0.0-alpha.1 — 2026-03-16
+  Middleware chain foundation (ResponseBuffer, MiddlewareContext)
+  RegisterMiddleware, CallNext, RunRequest, BuildChain
+  FillTextResponse, BuildFsPath, RunRequestWrapper
+
+v1.6.1 — 2026-03-15 15:30
+  Bug fixes: wwwroot navigation, rewrite rule index handling
+
+--------------------------------------------------------------------------------
 v1.5.0 — 2026-03-15 04:30
 --------------------------------------------------------------------------------
 

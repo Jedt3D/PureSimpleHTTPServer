@@ -1,5 +1,5 @@
 ================================================================================
-PureSimpleHTTPServer v1.5.0 - Quick Start Guide
+PureSimpleHTTPServer v2.3.1 - Quick Start Guide
 ================================================================================
 
 Welcome to PureSimpleHTTPServer! This guide will help you get started quickly.
@@ -86,7 +86,21 @@ Process Control:
 URL Rewriting:
 --------------
 --rewrite FILE     Load rewrite rules from FILE
-                   See docs/URL_REWRITE.md for syntax
+                   See docs/user/URL_REWRITING.md for syntax
+
+TLS / HTTPS:
+------------
+--tls-cert FILE    Path to PEM certificate file
+--tls-key FILE     Path to PEM private key file
+                   Both --tls-cert and --tls-key must be specified together.
+--auto-tls DOMAIN  Automatic HTTPS via acme.sh for DOMAIN
+                   Starts HTTP listener on port 80 for ACME challenges.
+                   Default port changes to 443.
+
+Compression:
+------------
+--no-gzip          Disable dynamic gzip compression
+                   Pre-compressed .gz sidecars are still served.
 
 
 STOPPING THE SERVER
