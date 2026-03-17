@@ -3,7 +3,7 @@
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
 ;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
-;           Middleware_GzipSidecar, Middleware_HandleAll
+;           Middleware_GzipSidecar, Middleware_EmbeddedAssets, Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -249,11 +249,44 @@ Procedure.i Middleware_GzipSidecar(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
   ProcedureReturn #True
 EndProcedure
 
+; ── Terminal Handlers (produce the response body) ──────────────────────────
+
+; Middleware_EmbeddedAssets — serve files from the in-memory asset pack
+Procedure.i Middleware_EmbeddedAssets(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  If g_EmbeddedPack = 0
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  Protected packPath.s = Mid(*req\Path, 2)
+  If packPath = "" : packPath = "index.html" : EndIf
+
+  Protected maxPackSize.i = 4 * 1024 * 1024
+  Protected *packBuf = AllocateMemory(maxPackSize)
+  If *packBuf = 0
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  Protected uncompSize.i = UncompressPackMemory(g_EmbeddedPack, *packBuf, maxPackSize, packPath)
+  If uncompSize < 0
+    FreeMemory(*packBuf)
+    ProcedureReturn CallNext(*req, *resp, *mCtx)
+  EndIf
+
+  Protected ext.s  = LCase(GetExtensionPart(packPath))
+  Protected mime.s = GetMimeType(ext)
+  *resp\StatusCode = #HTTP_200
+  *resp\Headers    = "Content-Type: " + mime + #CRLF$
+  *resp\Body       = *packBuf
+  *resp\BodySize   = uncompSize
+  *resp\Handled    = #True
+  ProcedureReturn #True
+EndProcedure
+
 ; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
 
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
   Protected *cfg.ServerConfig = *mCtx\Config
-  Protected urlPath.s, docRoot.s, indexList.s
+  Protected urlPath.s, docRoot.s
   Protected fsPath.s, ext.s, mimeType.s
   Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
   Protected *buffer, file.i
@@ -265,33 +298,10 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     ProcedureReturn #True
   EndIf
 
-  ; --- Try embedded assets ---
-  If g_EmbeddedPack > 0
-    Protected packPath.s = Mid(*req\Path, 2)
-    If packPath = "" : packPath = "index.html" : EndIf
-    Protected maxPackSize.i = 4 * 1024 * 1024
-    Protected *packBuf = AllocateMemory(maxPackSize)
-    If *packBuf
-      Protected uncompSize.i = UncompressPackMemory(g_EmbeddedPack, *packBuf, maxPackSize, packPath)
-      If uncompSize >= 0
-        Protected packExt.s  = LCase(GetExtensionPart(packPath))
-        Protected packMime.s = GetMimeType(packExt)
-        *resp\StatusCode = #HTTP_200
-        *resp\Headers    = "Content-Type: " + packMime + #CRLF$
-        *resp\Body       = *packBuf
-        *resp\BodySize   = uncompSize
-        *resp\Handled    = #True
-        ProcedureReturn #True
-      EndIf
-      FreeMemory(*packBuf)
-    EndIf
-  EndIf
-
   ; ── File serving ──
 
-  urlPath   = *req\Path
-  docRoot   = *cfg\RootDirectory
-  indexList = *cfg\IndexFiles
+  urlPath = *req\Path
+  docRoot = *cfg\RootDirectory
 
   ; Extract request headers
   rangeHeader = GetHeader(*req\RawHeaders, "Range")
@@ -319,7 +329,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
     EndIf
   EndIf
 
-  ; --- File not found (non-SPA — SPA fallback moved to Middleware_SpaFallback) ---
+  ; --- File not found ---
   If fileSize < 0
     LogError("error", "File not found: " + fsPath)
     FillTextResponse(*resp, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
@@ -405,6 +415,9 @@ EndProcedure
 
 ; ────────────────────────────────────────────────────────────────────────────
 ; RunRequest — chain runner; the single point of network I/O and memory cleanup
+;
+; Called from each worker thread via RunRequestWrapper (in main.pb).
+; Flow: parse → init buffer → run chain → send → free → log
 ; ────────────────────────────────────────────────────────────────────────────
 Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   Protected req.HttpRequest
@@ -431,7 +444,7 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   resp\Handled    = #False
 
   ; Initialize middleware context
-  mCtx\ChainIndex = -1
+  mCtx\ChainIndex = -1           ; CallNext increments to 0 on first call
   mCtx\Connection = connection
   mCtx\Config     = *cfg
   mCtx\BytesSent  = 0
@@ -447,6 +460,7 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
     EndIf
     mCtx\BytesSent = resp\BodySize
   Else
+    ; No handler matched — 404 fallback
     resp\StatusCode = #HTTP_404
     SendTextResponse(connection, #HTTP_404, "text/plain; charset=utf-8", "404 Not Found")
   EndIf
@@ -463,6 +477,7 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
 EndProcedure
 
 ; BuildChain() — register middleware in directive order (called once at startup)
+; Order follows Section 9 of modular-refactor-plan.md.
 Procedure BuildChain()
   g_ChainCount = 0
   ; Request modifiers (pre-processing)
@@ -476,5 +491,7 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_ETag304())
   ; Response sidecar
   RegisterMiddleware(@Middleware_GzipSidecar())
+  ; Terminal handlers
+  RegisterMiddleware(@Middleware_EmbeddedAssets())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
