@@ -6,6 +6,156 @@ Format: `## vX.Y.Z — YYYY-MM-DD HH:MM`
 
 ---
 
+## v2.3.1 — 2026-03-17
+
+### Phase 7 — Production Deployment Configs
+
+**Added**
+- `deploy/Caddyfile` — Reverse proxy configuration for 4 backend instances with health checks
+- `deploy/launch.sh` — Multi-instance launcher script (start/stop/status)
+- `deploy/pshs@.service` — systemd template unit for multi-instance management
+- `docs/deployment.md` — Comprehensive deployment guide covering standalone, HTTPS direct, and reverse proxy modes
+- Capacity estimates table for 1-8 instances
+
+**Documentation**
+- `docs/deployment.md` (new) — Three deployment modes with decision table and capacity estimates
+
+---
+
+## v2.3.0 — 2026-03-17
+
+### Phase 6 — ResponseWriter Abstraction and Dynamic Gzip Compression
+
+**Added**
+- `ResponseWriter` vtable-based abstraction in `Types.pbi` — decouples byte production from byte destination
+- `PlainWriter` implementation — sends bytes directly to TCP socket via `SendNetworkData`
+- `Middleware_GzipCompress` — post-processing middleware that compresses response bodies dynamically
+- `GzipCompressBuffer()` — converts PureBasic `CompressMemory()` (zlib) to valid gzip format
+- `IsCompressibleType()` — checks MIME type for text, JSON, JS, XML, SVG
+- `--no-gzip` CLI flag to disable dynamic compression
+- `NoGzip` field in `ServerConfig`
+- Runtime dependencies: `UseZipPacker()`, `UseCRC32Fingerprint()`
+
+**Changed**
+- `RunRequest()` now uses `PlainWriter` for all body output instead of direct `SendNetworkData`
+- `BuildChain()` registers `Middleware_GzipCompress` between GzipSidecar and EmbeddedAssets (position 8)
+- Middleware chain is now 11 middleware (was 10)
+
+**Documentation**
+- `docs/developer-guide.md` — Added ResponseWriter and dynamic gzip sections
+
+---
+
+## v2.2.0 — 2026-03-17
+
+### Phase 5 — Automatic HTTPS via acme.sh Integration
+
+**Added**
+- `src/AutoTLS.pbi` (new) — Certificate management via acme.sh:
+  - `IssueCertificate(domain, webroot)` — HTTP-01 webroot challenge
+  - `RenewCertificate(domain)` — Certificate renewal
+  - `CertRenewalLoop()` — Background thread checking every 12 hours
+  - `HttpRedirectLoop()` — Port 80 listener serving ACME challenges + HTTPS redirect
+  - `StartHttpRedirect()` / `StopHttpRedirect()` — Manage port 80 redirect server
+  - `StartCertRenewal()` / `StopCertRenewal()` — Manage renewal thread
+- `--auto-tls DOMAIN` CLI flag
+- `AutoTlsDomain` field in `ServerConfig`
+- Default port changes to 443 when `--auto-tls` is active
+
+**Changed**
+- `main.pb` — TLS mode priority: auto-tls > manual tls > plain http
+- `TcpServer.pbi` — Added `RestartServer()` for certificate reload without downtime
+
+**Documentation**
+- `docs/developer-guide.md` — Added Auto-TLS architecture section
+
+---
+
+## v2.1.0 — 2026-03-16
+
+### Phase 4 — HTTPS with Manual Certificates
+
+**Added**
+- Manual TLS support via `--tls-cert FILE` and `--tls-key FILE` CLI flags
+- `ReadPEMFile()` in `Config.pbi` — reads PEM certificate/key content
+- `TlsCert`, `TlsKey` fields in `ServerConfig`
+- `g_TlsEnabled`, `g_TlsKey`, `g_TlsCert` globals in `TcpServer.pbi`
+- `CreateServerWithTLS(port)` — creates TLS-enabled network server using `#PB_Network_TLSv1`
+
+**Changed**
+- `TcpServer.pbi` — `StartServer()` now calls `CreateServerWithTLS()` when TLS globals are set
+- `main.pb` — TLS setup section between log init and startup banner
+- Startup banner shows `https://` scheme and certificate paths when TLS is enabled
+
+---
+
+## v2.0.0 — 2026-03-16
+
+### Phase 3 — Middleware Cleanup, Isolation Tests, Developer Guide
+
+**Added**
+- `tests/test_middleware.pb` (new) — 16 middleware isolation tests covering all 10 middleware
+- `docs/developer-guide.md` (new) — Middleware architecture developer guide with chain diagram, memory rules, testing patterns, and extension tutorial
+
+**Changed**
+- Removed `Middleware_HandleAll` — all request handling now goes through the 10 individual middleware
+- Removed unused `HttpResponse` structure from `Types.pbi` (replaced by `ResponseBuffer`)
+- 124 unit tests across 13 test files; all pass
+
+---
+
+## v2.0.0-alpha.2 — 2026-03-16
+
+### Phases 1b-1k — Extract All 10 Middleware from HandleAll
+
+**Changed**
+- Extracted `Middleware_Rewrite` from HandleAll (URL rewriting/redirects)
+- Extracted `Middleware_IndexFile` from HandleAll (directory → index resolution)
+- Extracted `Middleware_CleanUrls` from HandleAll (extensionless → .html)
+- Extracted `Middleware_SpaFallback` from HandleAll (404 → index.html for SPAs)
+- Extracted `Middleware_HiddenPath` from HandleAll (access control)
+- Extracted `Middleware_ETag304` from HandleAll (conditional responses)
+- Extracted `Middleware_GzipSidecar` from HandleAll (pre-compressed .gz files)
+- Extracted `Middleware_EmbeddedAssets` from HandleAll (in-memory assets)
+- Extracted `Middleware_FileServer` from HandleAll (disk files + range requests)
+- Extracted `Middleware_DirectoryListing` from HandleAll (HTML directory browser)
+- `HandleAll` reduced to empty passthrough, then removed entirely
+
+---
+
+## v2.0.0-alpha.1 — 2026-03-16
+
+### Phase 1a — Middleware Chain Foundation
+
+**Added**
+- `ResponseBuffer` structure in `Types.pbi` — StatusCode, Headers, *Body, BodySize, Handled
+- `MiddlewareContext` structure in `Types.pbi` — ChainIndex, Connection, *Config, BytesSent
+- `src/Middleware.pbi` (new) — Chain infrastructure:
+  - `RegisterMiddleware()` — add a middleware to the chain during startup
+  - `CallNext()` — advance to the next middleware
+  - `RunRequest()` — chain runner with single-point network I/O and memory cleanup
+  - `BuildChain()` — register all middleware in directive order
+- `FillTextResponse()` in `HttpResponse.pbi` — fill a ResponseBuffer with UTF-8 text
+- `BuildFsPath()` in `Middleware.pbi` — filesystem path builder for middleware
+- `RunRequestWrapper()` in `main.pb` — bridges g_Handler to RunRequest with g_Config
+
+**Changed**
+- `main.pb` — replaced `g_Handler = @HandleRequest()` with `BuildChain()` + `g_Handler = @RunRequestWrapper()`
+- Request flow: `ConnectionThread → g_Handler → RunRequestWrapper → RunRequest → middleware chain`
+
+---
+
+## v1.6.1 — 2026-03-15 15:30
+
+### Bug Fixes — wwwroot Navigation and Rewrite Rules
+
+**Fixed**
+- **wwwroot gitlink issue** — Converted wwwroot from git submodule (gitlink) to regular tracked directory
+- **wwwroot/index.html navigation** — Enhanced and fixed navigation links
+- **Blog rewrite rules** — Fixed critical index file serving issue with wildcard patterns
+
+---
+
 ## v1.6.0 — 2026-03-15 14:00
 
 ### Phase A & C — Windows Build & Packaging, Windows Service Integration

@@ -1,70 +1,176 @@
 # PureSimpleHTTPServer
 
-A simple, single-binary HTTP/1.1 static file server written in PureBasic.
+A fast, single-binary HTTP/1.1 static file server with middleware architecture, HTTPS, and dynamic gzip compression — written in PureBasic.
 
 **Reference model:** Caddy `file-server`
-**Goal:** Self-contained executable that bundles and serves a compiled web application.
 
-## Status
-
-| Phase | Version | Feature | Status |
-|-------|---------|---------|--------|
-| A | v0.1.0 | TCP server + HTTP/1.1 parser + response builder | ✅ Done |
-| B | v0.2.0 | Static file serving from disk | ✅ Done |
-| C | v0.3.0 | Directory listing, SPA fallback, Range requests | ✅ Done |
-| D | v0.4.0 | Embedded assets (IncludeBinary + CatchPack) | ✅ Done |
-| E | v1.0.3 | Thread-per-connection, access log, full CLI | ✅ Done |
-| F-1 | v1.1.0 | Apache Combined Log, error log, log level filtering | ✅ Done |
-| F-2 | v1.2.0 | Size-based log rotation with archive naming + keep-count | ✅ Done |
-| F-3 | v1.3.0 | Daily midnight UTC rotation thread + PID file | ✅ Done |
-| F-4 | v1.4.0 | SIGHUP log reopen for logrotate integration | ✅ Done |
-| G   | v1.5.0 | URL rewriting and redirecting (`rewrite.conf`, `--clean-urls`) | ✅ Done |
-| A & C | v1.6.0 | **Windows Build & Packaging, Windows Service Integration** | ✅ Done |
-| — | v1.6.1 | **Bug fixes: wwwroot navigation, rewrite rule index handling** | ✅ Done |
-
-## Build
-
-Requires PureBasic 6.x. Compile as a **console** application with thread-safe mode:
+## Quick Start
 
 ```bash
+# 1. Build
 pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
+
+# 2. Run
+./PureSimpleHTTPServer --root ./wwwroot --port 8080
+
+# 3. Verify
+curl -I http://localhost:8080/
 ```
 
-## Run
+## Features
 
-```bash
-./PureSimpleHTTPServer [--port N] [--root DIR] [--browse] [--spa]
-                       [--log FILE] [--error-log FILE] [--log-level LEVEL]
-                       [--log-size MB] [--log-keep N] [--no-log-daily]
-                       [--pid-file FILE]
-                       [--clean-urls] [--rewrite FILE]
-# Default port: 8080, root: wwwroot/ next to the binary
-# Legacy: ./PureSimpleHTTPServer [port]
-```
+**Serving**
+- HTTP/1.1 static file serving with `Content-Type`, `ETag`, `Last-Modified`
+- `304 Not Modified` via `If-None-Match`
+- `206 Partial Content` via `Range` header
+- Directory listing (opt-in via `--browse`)
+- SPA fallback (opt-in via `--spa`)
+- Hidden path blocking (`.git`, `.env`, `.DS_Store` by default)
+- Embedded asset serving via `IncludeBinary` + `CatchPack` (opt-in at build time)
+- Thread-per-connection for concurrent request handling
+
+**Middleware Architecture (v2.0.0+)**
+- 11-stage ordered middleware chain (Rewrite → IndexFile → CleanUrls → SpaFallback → HiddenPath → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets → FileServer → DirectoryListing)
+- Post-processing middleware pattern (GzipCompress wraps downstream)
+- ResponseWriter abstraction for pluggable body output
+
+**TLS / HTTPS (v2.1.0+)**
+- Manual certificate support (`--tls-cert`, `--tls-key`)
+- Automatic HTTPS via acme.sh (`--auto-tls DOMAIN`)
+- Background certificate renewal (12-hour check interval)
+- HTTP→HTTPS redirect with ACME challenge serving on port 80
+
+**Compression (v2.3.0+)**
+- Dynamic gzip compression for text, JSON, JS, XML, SVG responses
+- Pre-compressed `.gz` sidecar support (`Content-Encoding: gzip`)
+- Disable with `--no-gzip`
+
+**URL Processing**
+- URL rewriting and redirecting via `rewrite.conf` (exact, glob, regex patterns)
+- Per-directory rewrite rules (auto-reloaded on change)
+- Clean URLs (`--clean-urls`: `/page` → `/page.html`)
+
+**Logging**
+- Access log in Apache Combined Log Format (CLF)
+- Error log with level filtering (`none`/`error`/`warn`/`info`)
+- Size-based and daily log rotation
+- SIGHUP log reopen for logrotate integration
+
+**Windows**
+- Native Windows Service support with Event Log integration
+- Professional NSIS installer with service installation
+- Portable ZIP package
+
+## CLI Flags
+
+**Server:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port N` | `8080` | Listening port |
+| `--root DIR` | `wwwroot/` next to binary | Document root directory |
+| `--browse` | off | Enable directory listing |
+| `--spa` | off | SPA mode: serve `index.html` for all 404s |
+
+**TLS:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--tls-cert FILE` | _(disabled)_ | Path to PEM certificate file |
+| `--tls-key FILE` | _(disabled)_ | Path to PEM private key file |
+| `--auto-tls DOMAIN` | _(disabled)_ | Enable automatic HTTPS via acme.sh for DOMAIN |
+
+**Compression:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--no-gzip` | off | Disable dynamic gzip compression |
+
+**Logging:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--log FILE` | _(disabled)_ | Write access log (Apache Combined Log Format) |
+| `--error-log FILE` | _(disabled)_ | Write error log |
+| `--log-level LEVEL` | `warn` | Error log threshold: `none`, `error`, `warn`, `info` |
+| `--log-size MB` | `100` | Rotate log when it exceeds MB (0 = disabled) |
+| `--log-keep N` | `30` | Max rotated archive files to keep |
+| `--no-log-daily` | off | Disable daily midnight log rotation |
+| `--pid-file FILE` | _(disabled)_ | Write process ID to FILE at startup |
+
+**URL:**
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--clean-urls` | off | Serve `/page.html` when `/page` is requested |
+| `--rewrite FILE` | _(disabled)_ | Load URL rewrite/redirect rules from FILE |
+
+**Windows Service (Windows only):**
 
 | Flag | Description |
 |------|-------------|
-| `--port N` | Listening port (default: 8080) |
-| `--root DIR` | Document root directory (default: `wwwroot/` next to binary) |
-| `--browse` | Enable directory listing |
-| `--spa` | Serve `index.html` for all 404s (SPA mode) |
-| `--log FILE` | Write access log (Apache Combined Log Format) to FILE |
-| `--error-log FILE` | Write error log to FILE |
-| `--log-level LEVEL` | Error log threshold: `none`, `error`, `warn` (default), `info` |
-| `--log-size MB` | Rotate log when it exceeds MB (default: 100; 0 = disabled) |
-| `--log-keep N` | Max rotated archive files to keep (default: 30) |
-| `--no-log-daily` | Disable daily log rotation at midnight |
-| `--pid-file FILE` | Write process ID to FILE at startup |
-| `--clean-urls` | Serve `/page.html` when `/page` is requested |
-| `--rewrite FILE` | Load URL rewrite/redirect rules from FILE (see `docs/URL_REWRITE.md`) |
-
-**Windows Service flags (Windows only):**
 | `--install` | Install as Windows service (requires Administrator) |
-| `--uninstall` | Uninstall Windows service (requires Administrator) |
+| `--uninstall` | Uninstall Windows service |
 | `--start` | Start Windows service |
 | `--stop` | Stop Windows service |
-| `--service` | Run as Windows service (called by Service Control Manager) |
+| `--service` | Run as Windows service (called by SCM) |
 | `--service-name NAME` | Custom service name (default: "PureSimpleHTTPServer") |
+
+## Deployment Modes
+
+| Mode | When to use |
+|------|------------|
+| Standalone | Development, low-traffic sites |
+| HTTPS Direct | Single-server production with TLS |
+| Reverse Proxy | Production behind Caddy/nginx (recommended) |
+
+See [docs/deployment.md](docs/deployment.md) for configuration details, capacity estimates, and multi-instance management.
+
+## Testing
+
+```bash
+cd tests
+./run_tests.sh
+```
+
+124 unit tests across 13 test files. All tests pass.
+
+## Architecture
+
+Every HTTP request flows through an ordered middleware chain:
+
+```
+Client → TCP → RunRequest() → [chain] → send → free → log
+
+Chain:  Rewrite → IndexFile → CleanUrls → SpaFallback → HiddenPath
+        → ETag304 → GzipSidecar → GzipCompress → EmbeddedAssets
+        → FileServer → DirectoryListing
+```
+
+See [docs/developer-guide.md](docs/developer-guide.md) for the full middleware architecture documentation.
+
+## Documentation
+
+**User Guides** (`docs/user/`)
+- [Quick Start](docs/user/QUICKSTART.md) — Get running in 2 minutes
+- [CLI Reference](docs/user/CLI_REFERENCE.md) — Every flag with examples
+- [Scenarios](docs/user/SCENARIOS.md) — Real-world deployment recipes
+- [URL Rewriting](docs/user/URL_REWRITING.md) — Rewrite rule syntax and examples
+- [Logging](docs/user/LOGGING.md) — Access/error logs, rotation, logrotate
+- [Troubleshooting](docs/user/TROUBLESHOOTING.md) — Common problems and fixes
+
+**Developer Guides** (`docs/developer/`)
+- [Architecture](docs/developer/ARCHITECTURE.md) — Module map, request lifecycle, threading
+- [Extending](docs/developer/EXTENDING.md) — Add flags, middleware, MIME types
+- [Module Reference](docs/developer/MODULE_REFERENCE.md) — Full API for every module
+- [Build Tutorial](docs/developer/BUILD_OUR_HTTP_SERVER.md) — Build a server from scratch
+- [Building](docs/developer/BUILDING.md) — Compile from source
+- [Testing](docs/developer/TESTING.md) — PureUnit framework and test patterns
+
+**Deployment & Operations**
+- [Deployment Guide](docs/deployment.md) — Standalone, HTTPS, reverse proxy modes
+- [Developer Guide](docs/developer-guide.md) — Middleware architecture deep dive
+- [Windows Deployment](docs/WINDOWS_DEPLOYMENT.md) — Installer, service, portable
 
 ## Windows Deployment
 
@@ -113,51 +219,21 @@ Service features:
 
 ### Building on Windows
 
-Automated build scripts are included for Windows:
-
 ```bash
-# Build executable
-build.bat
-
-# Create installer and portable package
-package.bat
-
-# Verify build
-verify_build.bat
+build.bat          # Build executable
+package.bat        # Create installer and portable package
+verify_build.bat   # Verify build
 ```
 
-Requirements:
-- PureBasic 6.x compiler
-- NSIS (for installer creation)
+Requirements: PureBasic 6.x compiler, NSIS (for installer creation)
 
-## Features
+## Build
 
-- HTTP/1.1 static file serving with `Content-Type`, `ETag`, `Last-Modified`
-- `304 Not Modified` via `If-None-Match`
-- `206 Partial Content` via `Range` header
-- Directory listing (opt-in via `--browse`)
-- SPA fallback (opt-in via `--spa`)
-- Hidden path blocking (`.git`, `.env`, `.DS_Store` by default)
-- Pre-compressed `.gz` sidecar support (`Content-Encoding: gzip`)
-- Embedded asset serving via `IncludeBinary` + `CatchPack` (opt-in at build time)
-- Thread-per-connection for concurrent request handling
-- Access log in Apache Combined Log Format (CLF) with IP, method, path, status, bytes, Referer, User-Agent
-- Error log with level filtering (`none`/`error`/`warn`/`info`)
-- URL rewriting and redirecting via `rewrite.conf` (exact, glob, regex patterns; `{path}`, `{file}`, `{dir}`, `{re.N}` placeholders)
-- Per-directory rewrite rules (`rewrite.conf` in any served directory, auto-reloaded on change)
-- Clean URLs (`--clean-urls`: `/page` → `/page.html`)
-- **Windows Service support** (Windows only) — Run as native Windows service with Event Log integration
-- **Professional Windows installer** — GUI installer with service installation, shortcuts, and uninstaller
-- **Portable Windows package** — No installation required
-
-## Testing
+Requires PureBasic 6.x. Compile as a **console** application with thread-safe mode:
 
 ```bash
-cd tests
-./run_tests.sh
+pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ```
-
-108 unit tests across 12 test files. All tests pass.
 
 ## Load Testing
 
@@ -174,5 +250,3 @@ ab -n 1000 -c 10 http://127.0.0.1:8080/
 | Mean response time | 2 ms |
 | Transfer rate | ~38 MB/s |
 | Crashes | None |
-
-See [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) for full developer documentation.
