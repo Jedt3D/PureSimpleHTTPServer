@@ -1,7 +1,8 @@
 ; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
-;           Middleware_Rewrite, Middleware_HiddenPath, Middleware_HandleAll
+;           Middleware_Rewrite, Middleware_HiddenPath, Middleware_ETag304,
+;           Middleware_HandleAll
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -41,6 +42,21 @@ Procedure.i CallNext(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareCon
   EndIf
   handler = g_Chain(*mCtx\ChainIndex)
   ProcedureReturn handler(*req, *resp, *mCtx)
+EndProcedure
+
+; ── Utility ────────────────────────────────────────────────────────────────
+
+; BuildFsPath(docRoot, urlPath) — build a filesystem path from doc root + URL path
+; Strips trailing separator from docRoot; converts "/" to "\" on Windows.
+Procedure.s BuildFsPath(docRoot.s, urlPath.s)
+  If Right(docRoot, 1) = "/" Or Right(docRoot, 1) = "\"
+    docRoot = Left(docRoot, Len(docRoot) - 1)
+  EndIf
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    ProcedureReturn ReplaceString(docRoot + urlPath, "/", "\")
+  CompilerElse
+    ProcedureReturn docRoot + urlPath
+  CompilerEndIf
 EndProcedure
 
 ; ── Extracted Middleware ────────────────────────────────────────────────────
@@ -89,6 +105,28 @@ Procedure.i Middleware_HiddenPath(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.
   ProcedureReturn CallNext(*req, *resp, *mCtx)
 EndProcedure
 
+; Middleware_ETag304 — return 304 Not Modified when ETag matches
+Procedure.i Middleware_ETag304(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+  Protected ifNoneMatch.s = GetHeader(*req\RawHeaders, "If-None-Match")
+  Protected fsPath.s, etag.s
+
+  If ifNoneMatch <> ""
+    fsPath = BuildFsPath(*cfg\RootDirectory, *req\Path)
+    etag   = BuildETag(fsPath)
+    If etag <> "" And ifNoneMatch = etag
+      *resp\StatusCode = #HTTP_304
+      *resp\Headers    = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=0" + #CRLF$
+      *resp\Body       = 0
+      *resp\BodySize   = 0
+      *resp\Handled    = #True
+      ProcedureReturn #True
+    EndIf
+  EndIf
+
+  ProcedureReturn CallNext(*req, *resp, *mCtx)
+EndProcedure
+
 ; ── HandleAll (monolithic — remaining logic) ───────────────────────────────
 
 Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
@@ -97,7 +135,7 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   Protected fsPath.s, resolvedPath.s, ext.s, mimeType.s
   Protected fileSize.i, mtime.q, etag.s, extraHeaders.s
   Protected *buffer, file.i
-  Protected rangeHeader.s, acceptEncoding.s, ifNoneMatch.s
+  Protected rangeHeader.s, acceptEncoding.s
 
   ; --- Only handle GET requests ---
   If *req\Method <> "GET"
@@ -136,17 +174,9 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
   ; Extract request headers
   rangeHeader    = GetHeader(*req\RawHeaders, "Range")
   acceptEncoding = GetHeader(*req\RawHeaders, "Accept-Encoding")
-  ifNoneMatch    = GetHeader(*req\RawHeaders, "If-None-Match")
 
   ; Build filesystem path
-  If Right(docRoot, 1) = "/" Or Right(docRoot, 1) = "\"
-    docRoot = Left(docRoot, Len(docRoot) - 1)
-  EndIf
-  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
-    fsPath = ReplaceString(docRoot + urlPath, "/", "\")
-  CompilerElse
-    fsPath = docRoot + urlPath
-  CompilerEndIf
+  fsPath = BuildFsPath(docRoot, urlPath)
 
   fileSize = FileSize(fsPath)
 
@@ -233,16 +263,6 @@ Procedure.i Middleware_HandleAll(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.M
         FreeMemory(*buffer)
       EndIf
     EndIf
-  EndIf
-
-  ; --- 304 Not Modified ---
-  If ifNoneMatch <> "" And ifNoneMatch = etag
-    *resp\StatusCode = #HTTP_304
-    *resp\Headers    = "ETag: " + etag + #CRLF$ + "Cache-Control: max-age=0" + #CRLF$
-    *resp\Body       = 0
-    *resp\BodySize   = 0
-    *resp\Handled    = #True
-    ProcedureReturn #True
   EndIf
 
   ; --- Range request ---
@@ -380,5 +400,6 @@ Procedure BuildChain()
   g_ChainCount = 0
   RegisterMiddleware(@Middleware_Rewrite())
   RegisterMiddleware(@Middleware_HiddenPath())
+  RegisterMiddleware(@Middleware_ETag304())
   RegisterMiddleware(@Middleware_HandleAll())
 EndProcedure
