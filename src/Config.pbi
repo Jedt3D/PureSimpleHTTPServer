@@ -61,6 +61,8 @@ Procedure LoadDefaults(*cfg.ServerConfig)
   *cfg\TlsCert        = ""
   *cfg\TlsKey         = ""
   *cfg\AutoTlsDomain  = ""
+  ; Phase 6: gzip default
+  *cfg\NoGzip         = #False
 EndProcedure
 
 ; ParseLogLevel(s.s) — convert level name to integer (0 if unrecognized)
@@ -149,6 +151,9 @@ Procedure.i ParseCLI(*cfg.ServerConfig)
       i + 1
       If i >= count : ProcedureReturn #False : EndIf
       *cfg\RewriteFile = ProgramParameter(i)
+
+    ElseIf param = "--no-gzip"
+      *cfg\NoGzip = #True
 
     ElseIf param = "--tls-cert"
       i + 1

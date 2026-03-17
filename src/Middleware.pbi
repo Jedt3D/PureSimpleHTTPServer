@@ -3,8 +3,9 @@
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           Middleware_Rewrite, Middleware_IndexFile, Middleware_CleanUrls,
 ;           Middleware_SpaFallback, Middleware_HiddenPath, Middleware_ETag304,
-;           Middleware_GzipSidecar, Middleware_EmbeddedAssets, Middleware_FileServer,
-;           Middleware_DirectoryListing
+;           Middleware_GzipCompress, Middleware_GzipSidecar,
+;           Middleware_EmbeddedAssets, Middleware_FileServer,
+;           Middleware_DirectoryListing, PlainWriter, GzipCompressBuffer
 ;
 ; Memory rules (from Section 7 of modular-refactor-plan.md):
 ;   Rule 1: The chain runner owns the final resp\Body and always frees it.
@@ -59,6 +60,109 @@ Procedure.s BuildFsPath(docRoot.s, urlPath.s)
   CompilerElse
     ProcedureReturn docRoot + urlPath
   CompilerEndIf
+EndProcedure
+
+; ── PlainWriter — sends bytes directly to TCP socket ───────────────────────
+
+Procedure.i PlainWrite(*self.ResponseWriter, *data, length.i)
+  If length > 0
+    ProcedureReturn SendNetworkData(*self\connection, *data, length)
+  EndIf
+  ProcedureReturn 0
+EndProcedure
+
+Procedure PlainFlush(*self.ResponseWriter)
+  ; Nothing to flush — data already sent to network
+EndProcedure
+
+Procedure InitPlainWriter(*w.ResponseWriter, connection.i)
+  *w\Write      = @PlainWrite()
+  *w\Flush      = @PlainFlush()
+  *w\inner      = 0
+  *w\ctx        = 0
+  *w\connection = connection
+EndProcedure
+
+; ── Gzip compression helper ───────────────────────────────────────────────
+; Uses CompressMemory (zlib format) + manual gzip wrapper.
+; CompressMemory with #PB_PackerPlugin_Zip produces zlib format:
+;   2-byte zlib header + deflate data + 4-byte Adler-32
+; We strip the zlib framing and wrap with gzip header/trailer.
+
+; GzipCompressBuffer(*input, inputSize, *outSize) — compress to gzip format
+; Allocates and returns a new buffer containing gzip data.
+; Caller must FreeMemory() the returned buffer. Returns 0 on failure.
+; *outSize receives the compressed size.
+Procedure.i GzipCompressBuffer(*input, inputSize.i, *outSize.Integer)
+  If inputSize <= 0 Or *input = 0
+    *outSize\i = 0
+    ProcedureReturn 0
+  EndIf
+
+  ; Compress with zlib format
+  UseZipPacker()
+  Protected zlibCap.i = inputSize + inputSize / 10 + 256
+  Protected *zlibOut = AllocateMemory(zlibCap)
+  If *zlibOut = 0
+    *outSize\i = 0
+    ProcedureReturn 0
+  EndIf
+
+  Protected zlibSize.i = CompressMemory(*input, inputSize, *zlibOut, zlibCap, #PB_PackerPlugin_Zip, 6)
+  If zlibSize < 7   ; need at least 2-byte header + 1 byte data + 4-byte trailer
+    FreeMemory(*zlibOut)
+    *outSize\i = 0
+    ProcedureReturn 0
+  EndIf
+
+  ; Extract raw deflate: strip 2-byte zlib header and 4-byte Adler-32 trailer
+  Protected deflateSize.i = zlibSize - 6
+  Protected *deflateData  = *zlibOut + 2
+
+  ; Compute CRC32 of original uncompressed data
+  UseCRC32Fingerprint()
+  Protected crcHex.s = Fingerprint(*input, inputSize, #PB_Cipher_CRC32)
+  Protected crc32.l  = Val("$" + crcHex)
+
+  ; Build gzip output: 10-byte header + deflate + 8-byte trailer
+  Protected gzipSize.i = 10 + deflateSize + 8
+  Protected *gzip = AllocateMemory(gzipSize)
+  If *gzip = 0
+    FreeMemory(*zlibOut)
+    *outSize\i = 0
+    ProcedureReturn 0
+  EndIf
+
+  ; Gzip header (10 bytes)
+  PokeA(*gzip + 0, $1F)   ; magic
+  PokeA(*gzip + 1, $8B)   ; magic
+  PokeA(*gzip + 2, $08)   ; method: deflate
+  PokeA(*gzip + 3, $00)   ; flags: none
+  PokeL(*gzip + 4, 0)     ; mtime: none
+  PokeA(*gzip + 8, $00)   ; xfl
+  PokeA(*gzip + 9, $03)   ; OS: Unix
+
+  ; Raw deflate data
+  CopyMemory(*deflateData, *gzip + 10, deflateSize)
+
+  ; Gzip trailer (8 bytes): CRC32 + original size (both little-endian)
+  PokeL(*gzip + 10 + deflateSize, crc32)
+  PokeL(*gzip + 10 + deflateSize + 4, inputSize)
+
+  FreeMemory(*zlibOut)
+  *outSize\i = gzipSize
+  ProcedureReturn *gzip
+EndProcedure
+
+; IsCompressibleType(contentType) — check if this MIME type benefits from compression
+Procedure.i IsCompressibleType(headers.s)
+  Protected ct.s = LCase(headers)
+  If FindString(ct, "text/") > 0 : ProcedureReturn #True : EndIf
+  If FindString(ct, "application/json") > 0 : ProcedureReturn #True : EndIf
+  If FindString(ct, "application/javascript") > 0 : ProcedureReturn #True : EndIf
+  If FindString(ct, "application/xml") > 0 : ProcedureReturn #True : EndIf
+  If FindString(ct, "image/svg+xml") > 0 : ProcedureReturn #True : EndIf
+  ProcedureReturn #False
 EndProcedure
 
 ; ── Request Modifiers (pre-processing) ─────────────────────────────────────
@@ -248,6 +352,60 @@ Procedure.i Middleware_GzipSidecar(*req.HttpRequest, *resp.ResponseBuffer, *mCtx
   *resp\BodySize   = gzSize
   *resp\Handled    = #True
   ProcedureReturn #True
+EndProcedure
+
+; ── Dynamic Compression (post-processing) ──────────────────────────────────
+
+; Middleware_GzipCompress — compress response body with gzip after downstream fills it
+; Runs after ETag304/GzipSidecar, before terminal handlers in the chain.
+; Skips compression when: disabled, body too small, non-compressible type,
+;   client doesn't accept gzip, or Content-Encoding already set.
+#GZIP_MIN_SIZE = 256
+
+Procedure.i Middleware_GzipCompress(*req.HttpRequest, *resp.ResponseBuffer, *mCtx.MiddlewareContext)
+  Protected *cfg.ServerConfig = *mCtx\Config
+
+  ; Let downstream produce the response first
+  Protected result.i = CallNext(*req, *resp, *mCtx)
+
+  ; Skip if disabled, not handled, or no body
+  If *cfg\NoGzip Or Not *resp\Handled Or *resp\Body = 0 Or *resp\BodySize < #GZIP_MIN_SIZE
+    ProcedureReturn result
+  EndIf
+
+  ; Skip if client doesn't accept gzip
+  Protected acceptEncoding.s = GetHeader(*req\RawHeaders, "Accept-Encoding")
+  If FindString(acceptEncoding, "gzip") = 0
+    ProcedureReturn result
+  EndIf
+
+  ; Skip if already compressed (e.g., GzipSidecar already served a .gz file)
+  If FindString(*resp\Headers, "Content-Encoding:") > 0
+    ProcedureReturn result
+  EndIf
+
+  ; Skip non-compressible types (images, video, zip, etc.)
+  If Not IsCompressibleType(*resp\Headers)
+    ProcedureReturn result
+  EndIf
+
+  ; Compress resp\Body → gzip
+  Protected compressedSize.i
+  Protected *compressed = GzipCompressBuffer(*resp\Body, *resp\BodySize, @compressedSize)
+  If *compressed = 0 Or compressedSize >= *resp\BodySize
+    ; Compression failed or didn't shrink — keep original
+    If *compressed : FreeMemory(*compressed) : EndIf
+    ProcedureReturn result
+  EndIf
+
+  ; Replace body with compressed version (Rule 2: free old first)
+  FreeMemory(*resp\Body)
+  *resp\Body     = *compressed
+  *resp\BodySize = compressedSize
+  *resp\Headers + "Content-Encoding: gzip" + #CRLF$
+  *resp\Headers + "Vary: Accept-Encoding" + #CRLF$
+
+  ProcedureReturn result
 EndProcedure
 
 ; ── Terminal Handlers (produce the response body) ──────────────────────────
@@ -447,12 +605,15 @@ Procedure.i RunRequest(connection.i, raw.s, *cfg.ServerConfig)
   ; Run the chain
   CallNext(@req, @resp, @mCtx)
 
-  ; --- Single point of network I/O ---
+  ; --- Single point of network I/O (via PlainWriter) ---
   If resp\Handled
+    Protected writer.ResponseWriter
+    InitPlainWriter(@writer, connection)
     SendNetworkString(connection, BuildResponseHeaders(resp\StatusCode, resp\Headers, resp\BodySize), #PB_Ascii)
     If resp\Body And resp\BodySize > 0
-      SendNetworkData(connection, resp\Body, resp\BodySize)
+      writer\Write(@writer, resp\Body, resp\BodySize)
     EndIf
+    writer\Flush(@writer)
     mCtx\BytesSent = resp\BodySize
   Else
     ; No handler matched — 404 fallback
@@ -486,6 +647,8 @@ Procedure BuildChain()
   RegisterMiddleware(@Middleware_ETag304())
   ; Response sidecar
   RegisterMiddleware(@Middleware_GzipSidecar())
+  ; Dynamic compression (post-processing — compresses resp\Body after terminal handlers)
+  RegisterMiddleware(@Middleware_GzipCompress())
   ; Terminal handlers
   RegisterMiddleware(@Middleware_EmbeddedAssets())
   RegisterMiddleware(@Middleware_FileServer())

@@ -34,6 +34,20 @@ Structure MiddlewareContext
   BytesSent.i        ; Filled after send — for access logging
 EndStructure
 
+; ResponseWriter prototypes and structure (Phase 6: streaming transform foundation)
+Prototype.i ProtoWrite(*self, *data, length.i)    ; write bytes → returns bytes written
+Prototype   ProtoFlush(*self)                      ; flush/finalize (close encoder, etc.)
+
+; ResponseWriter — vtable-based writer abstraction for body output.
+; PlainWriter sends directly to TCP. Future writers (gzip, brotli) wrap an inner writer.
+Structure ResponseWriter
+  Write.ProtoWrite          ; function pointer: write bytes
+  Flush.ProtoFlush          ; function pointer: flush/finalize
+  *inner.ResponseWriter     ; wrapped writer (0 for terminal writers like PlainWriter)
+  *ctx                      ; opaque pointer to implementation-specific state
+  connection.i              ; TCP connection ID (used by PlainWriter)
+EndStructure
+
 ; Byte range for HTTP Range requests (used by RangeParser.pbi)
 Structure RangeSpec
   Start.i    ; First byte to serve (inclusive)
@@ -69,4 +83,6 @@ Structure ServerConfig
   TlsKey.s           ; Path to PEM private key file ("" = TLS disabled)
   ; --- Phase 5: Auto-TLS ---
   AutoTlsDomain.s    ; Domain for automatic certificate management ("" = disabled)
+  ; --- Phase 6: Dynamic gzip ---
+  NoGzip.i           ; #True to disable dynamic gzip compression
 EndStructure
