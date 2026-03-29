@@ -335,8 +335,11 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ;   dwArgc      - Argument count
     ;   *lpszArgv   - Argument vectors
 
-    ; Register service control handler
-    g_hServiceStatus = RegisterServiceCtrlHandlerA("PureSimpleHTTPServer", @ServiceCtrlHandler())
+    ; Access the global server configuration set by main.pb
+    Shared g_Config.ServerConfig
+
+    ; Register service control handler using configured service name
+    g_hServiceStatus = RegisterServiceCtrlHandlerA(g_Config\ServiceName, @ServiceCtrlHandler())
 
     If g_hServiceStatus = 0
       ; Failed to register handler
@@ -354,12 +357,8 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
 
     SetServiceStatus(g_hServiceStatus, g_ServiceStatus)
 
-    ; TODO: Initialize server configuration from registry or config file
-    ; For now, use default port 8080
-    Protected serverPort.i = 8080
-
-    ; Start the server (this blocks until StopServer is called)
-    If StartServer(serverPort)
+    ; Start the server using configured port (this blocks until StopServer is called)
+    If StartServer(g_Config\Port)
       ; Server started successfully
       g_ServiceStatus\dwCurrentState = #SERVICE_RUNNING
       g_ServiceStatus\dwCheckPoint = 0
@@ -390,6 +389,9 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Connect PureSimpleHTTPServer to the Service Control Manager
     ; This procedure never returns (until service is stopped)
 
+    ; Access the global server configuration set by main.pb
+    Shared g_Config.ServerConfig
+
     ; Service table entry structure (PureBasic provides this)
     ; Structure SERVICE_TABLE_ENTRY
     ;   *lpServiceName
@@ -399,7 +401,7 @@ CompilerIf #PB_Compiler_OS = #PB_OS_Windows
     ; Define service table
     Dim serviceTable.SERVICE_TABLE_ENTRY(1)
 
-    serviceTable(0)\lpServiceName = @"PureSimpleHTTPServer"
+    serviceTable(0)\lpServiceName = @g_Config\ServiceName
     serviceTable(0)\lpServiceProc = @ServiceMain()
     serviceTable(1)\lpServiceName = #Null
     serviceTable(1)\lpServiceProc = #Null

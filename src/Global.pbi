@@ -25,6 +25,13 @@ EnableExplicit
 #SEND_CHUNK_SIZE  = 65536  ; 64 KB file send chunk size
 #MAX_HEADER_SIZE  = 8192   ; 8 KB maximum request header block
 
+; --- Path separator (compile-time, zero cost) ---
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  #SEP = "\"
+CompilerElse
+  #SEP = "/"
+CompilerEndIf
+
 ; --- Server defaults ---
 #DEFAULT_PORT  = 8080
 #DEFAULT_INDEX = "index.html"
