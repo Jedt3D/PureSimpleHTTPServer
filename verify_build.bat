@@ -11,7 +11,7 @@ REM ============================================================================
 setlocal EnableDelayedExpansion
 
 REM Configuration
-set VERSION=1.5.0
+set VERSION=2.5.0
 set APP_NAME=PureSimpleHTTPServer
 set OUTPUT_DIR=dist
 set EXE_NAME=%APP_NAME%.exe

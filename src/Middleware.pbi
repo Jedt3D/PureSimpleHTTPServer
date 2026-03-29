@@ -69,7 +69,7 @@ Procedure FillErrorResponse(*resp.ResponseBuffer, *cfg.ServerConfig, statusCode.
   Protected fsPath.s, fileSize.i, *buffer, file.i
 
   If *cfg\ErrorPagesDir <> ""
-    fsPath = *cfg\ErrorPagesDir + "/" + Str(statusCode) + ".html"
+    fsPath = *cfg\ErrorPagesDir + #SEP + Str(statusCode) + ".html"
     fileSize = FileSize(fsPath)
     If fileSize > 0 And fileSize < 1048576  ; cap at 1 MB
       *buffer = AllocateMemory(fileSize + 1)

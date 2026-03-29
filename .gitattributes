@@ -1,0 +1,11 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# PureBasic source: LF (compiler is line-ending agnostic)
+*.pb text eol=lf
+*.pbi text eol=lf
+
+# Windows batch/installer scripts: CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.nsi text eol=crlf

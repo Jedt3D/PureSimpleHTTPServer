@@ -25,7 +25,11 @@
 EnableExplicit
 
 ; Platform-specific: get current process ID for PID file and error log [pid N] field
-CompilerIf #PB_Compiler_OS <> #PB_OS_Windows
+CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+  ImportC "kernel32.lib"
+    GetCurrentProcessId.l()
+  EndImport
+CompilerElse
   ImportC ""
     getpid.i()
   EndImport
@@ -206,7 +210,9 @@ Procedure Main()
   g_LogKeepCount = g_Config\LogKeepCount
 
   ; Set process ID for error log lines and PID file
-  CompilerIf #PB_Compiler_OS <> #PB_OS_Windows
+  CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+    g_ServerPID = GetCurrentProcessId()
+  CompilerElse
     g_ServerPID = getpid()
   CompilerEndIf
 
@@ -251,11 +257,19 @@ Procedure Main()
   ; Determine TLS mode: auto-tls > manual tls > plain http
   If g_Config\AutoTlsDomain <> ""
     ; --- Auto-TLS: issue/renew certificates via acme.sh ---
+
+    ; Auto-TLS requires acme.sh (bash script) — not available natively on Windows
+    CompilerIf #PB_Compiler_OS = #PB_OS_Windows
+      PrintN("ERROR: --auto-tls requires acme.sh which is not available on Windows")
+      PrintN("       Use --tls-cert and --tls-key to provide certificates manually")
+      End 1
+    CompilerEndIf
+
     g_AutoTlsDomain = g_Config\AutoTlsDomain
 
     ; Set up ACME challenge directory inside the webroot
-    g_AcmeChallengeDir = g_Config\RootDirectory + "/.well-known/acme-challenge"
-    CreateDirectory(g_Config\RootDirectory + "/.well-known")
+    g_AcmeChallengeDir = g_Config\RootDirectory + #SEP + ".well-known" + #SEP + "acme-challenge"
+    CreateDirectory(g_Config\RootDirectory + #SEP + ".well-known")
     CreateDirectory(g_AcmeChallengeDir)
 
     ; Start HTTP redirect server on port 80 (ACME challenges + HTTPS redirect)

@@ -19,7 +19,7 @@ set PB_COMPILER=C:\Program Files\PureBasic\Compilers\pbcompiler.exe
 set OUTPUT_DIR=dist
 set SOURCE_FILE=src\main.pb
 set EXE_NAME=PureSimpleHTTPServer.exe
-set VERSION=1.5.0
+set VERSION=2.5.0
 
 REM Colors for output (Windows 10+)
 set "INFO=[92m"    ; Green

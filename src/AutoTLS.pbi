@@ -31,12 +31,12 @@ Global g_HttpRedirectPort.i    = 80
 
 ; GetCertPath(domain) — return the path acme.sh stores the fullchain certificate
 Procedure.s GetCertPath(domain.s)
-  ProcedureReturn GetHomeDirectory() + ".acme.sh/" + domain + "_ecc/fullchain.cer"
+  ProcedureReturn GetHomeDirectory() + ".acme.sh" + #SEP + domain + "_ecc" + #SEP + "fullchain.cer"
 EndProcedure
 
 ; GetKeyPath(domain) — return the path acme.sh stores the private key
 Procedure.s GetKeyPath(domain.s)
-  ProcedureReturn GetHomeDirectory() + ".acme.sh/" + domain + "_ecc/" + domain + ".key"
+  ProcedureReturn GetHomeDirectory() + ".acme.sh" + #SEP + domain + "_ecc" + #SEP + domain + ".key"
 EndProcedure
 
 ; CertificateExists(domain) — check if both cert and key files exist on disk
@@ -49,7 +49,7 @@ EndProcedure
 ; RunAcmeSh(args) — run acme.sh with the given arguments, return exit code
 ; Returns 0 on success, nonzero on failure, -1 if acme.sh not found.
 Procedure.i RunAcmeSh(args.s)
-  Protected acmePath.s = GetHomeDirectory() + ".acme.sh/acme.sh"
+  Protected acmePath.s = GetHomeDirectory() + ".acme.sh" + #SEP + "acme.sh"
   If FileSize(acmePath) < 0
     ProcedureReturn -1
   EndIf
@@ -139,7 +139,7 @@ Procedure.i HttpRedirectHandler(connection.i, raw.s)
   If Left(req\Path, Len(prefix)) = prefix
     Protected token.s = Mid(req\Path, Len(prefix) + 1)
     If token <> "" And FindString(token, "/") = 0 And FindString(token, "..") = 0
-      Protected tokenPath.s = g_AcmeChallengeDir + "/" + token
+      Protected tokenPath.s = g_AcmeChallengeDir + #SEP + token
       Protected tokenSize.i = FileSize(tokenPath)
       If tokenSize >= 0
         Protected *buf = AllocateMemory(tokenSize + 1)
