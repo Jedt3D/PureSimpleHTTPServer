@@ -1,4 +1,4 @@
-; WindowsService.pbi — Windows Service integration for PureSimpleHTTPServer
+﻿; WindowsService.pbi — Windows Service integration for PureSimpleHTTPServer
 ; Include with: XIncludeFile "WindowsService.pbi"
 ;
 ; Provides Windows Service functionality:

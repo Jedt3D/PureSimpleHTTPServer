@@ -1,4 +1,4 @@
-; test_mime_types.pb — Unit tests for MimeTypes.pbi
+﻿; test_mime_types.pb — Unit tests for MimeTypes.pbi
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 

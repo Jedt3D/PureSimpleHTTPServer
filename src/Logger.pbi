@@ -1,4 +1,4 @@
-; Logger.pbi — access log and error log writer
+﻿; Logger.pbi — access log and error log writer
 ; Include with: XIncludeFile "Logger.pbi"
 ; Provides: OpenLogFile(), LogAccess(), CloseLogFile()
 ;           OpenErrorLog(), LogError(), CloseErrorLog()

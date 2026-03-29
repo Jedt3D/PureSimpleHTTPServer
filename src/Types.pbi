@@ -1,4 +1,4 @@
-; Types.pbi — shared structure definitions for PureSimpleHTTPServer
+﻿; Types.pbi — shared structure definitions for PureSimpleHTTPServer
 ; Include with: XIncludeFile "Types.pbi"
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi
 

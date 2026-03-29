@@ -1,4 +1,4 @@
-; TestCommon.pbi — shared includes for all test files
+﻿; TestCommon.pbi — shared includes for all test files
 ; Include with: XIncludeFile "TestCommon.pbi"  (from the tests/ directory)
 ;
 ; All paths use "../src/" so PureUnit's parser resolves them from tests/ correctly.

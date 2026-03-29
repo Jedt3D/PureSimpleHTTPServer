@@ -1,4 +1,4 @@
-; test_range_parser.pb — Unit tests for RangeParser.pbi
+﻿; test_range_parser.pb — Unit tests for RangeParser.pbi
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 

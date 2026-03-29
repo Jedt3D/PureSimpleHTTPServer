@@ -2,8 +2,8 @@
 Python test for xojo.pygments.py grammar
 Run: python pygments/test.py
 
-ทดสอบ token type ที่ได้จาก XojoLexer โดยตรวจ token แรก (หรือทั้งหมด)
-ของแต่ละบรรทัด — เลียนแบบรูปแบบเดียวกับ codemirror/test.mjs
+Tests token types returned by XojoLexer by checking the first (or all) tokens
+of each line — follows the same pattern as codemirror/test.mjs
 """
 
 import importlib.util
@@ -11,7 +11,7 @@ import os
 import sys
 
 # ──────────────────────────────────────────────────────────────────────────────
-# โหลด XojoLexer จากไฟล์ xojo.pygments.py (dot ในชื่อไฟล์ทำให้ import ปกติไม่ได้)
+# Load XojoLexer from xojo.pygments.py (dot in filename prevents normal import)
 # ──────────────────────────────────────────────────────────────────────────────
 _lexer_path = os.path.join(os.path.dirname(__file__), 'xojo.pygments.py')
 _spec = importlib.util.spec_from_file_location('xojo_pygments', _lexer_path)
@@ -28,7 +28,7 @@ from pygments.token import (
 def tokenize(code: str):
     """
     Tokenize a single line of Xojo code.
-    Returns list of (tokentype, value) — ไม่รวม Whitespace
+    Returns list of (tokentype, value) — excluding Whitespace
     """
     lexer = XojoLexer()
     result = []
@@ -40,11 +40,11 @@ def tokenize(code: str):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ชุดทดสอบ — แต่ละ entry เป็น dict ที่มี:
-#   line  → บรรทัด Xojo code ที่จะทดสอบ
-#   first → token type ที่คาดหวังสำหรับ token แรก (ไม่รวม whitespace)
-#   label → คำอธิบายสำหรับ output
-#   check → (optional) ฟังก์ชัน custom แทน first
+# Test suite — each entry is a dict with:
+#   line  → line of Xojo code to test
+#   first → expected token type for the first token (excluding whitespace)
+#   label → description for output
+#   check → (optional) custom function instead of first
 # ──────────────────────────────────────────────────────────────────────────────
 tests = [
     # ─── Comments ───────────────────────────────────────────────────────────
@@ -52,7 +52,7 @@ tests = [
     {'line': "' apostrophe comment",   'first': Comment.Single,   'label': "' comment"},
 
     # ─── Preprocessor ───────────────────────────────────────────────────────
-    # ทั้งบรรทัดต้องเป็น Comment.Preproc — "Module" ใน #tag ต้องไม่เป็น Keyword
+    # Entire line must be Comment.Preproc — "Module" in #tag must NOT be Keyword
     {'line': '#pragma DisableBackgroundTasks', 'first': Comment.Preproc, 'label': '#pragma → Comment.Preproc'},
     {'line': '#tag Module, Name = Utils',      'first': Comment.Preproc, 'label': '#tag → Comment.Preproc'},
     {'line': '#if TargetMacOS',               'first': Comment.Preproc, 'label': '#if → Comment.Preproc'},

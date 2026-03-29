@@ -1,4 +1,4 @@
-; test_http_response.pb — Unit tests for HttpResponse.pbi
+﻿; test_http_response.pb — Unit tests for HttpResponse.pbi
 ; Tests: StatusText(), BuildResponseHeaders()
 ; NOTE: SendTextResponse() requires a live network connection — not unit tested here.
 ; HttpResponse.pbi transitively includes Global.pbi

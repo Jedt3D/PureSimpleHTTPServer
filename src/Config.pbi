@@ -1,4 +1,4 @@
-; Config.pbi — server configuration loading and CLI parsing
+﻿; Config.pbi — server configuration loading and CLI parsing
 ; Include with: XIncludeFile "Config.pbi"
 ; Provides: LoadDefaults(), ParseCLI()
 ;

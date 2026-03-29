@@ -1,4 +1,4 @@
-; test_config.pb — Unit tests for Config.pbi
+﻿; test_config.pb — Unit tests for Config.pbi
 ; Phase E: full tests for LoadDefaults() and ParseCLI()
 EnableExplicit
 XIncludeFile "TestCommon.pbi"

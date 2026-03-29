@@ -1,4 +1,4 @@
-; test_directory_listing.pb — Unit tests for DirectoryListing.pbi
+﻿; test_directory_listing.pb — Unit tests for DirectoryListing.pbi
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 

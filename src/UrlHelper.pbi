@@ -1,4 +1,4 @@
-; UrlHelper.pbi — URL decoding and path normalization
+﻿; UrlHelper.pbi — URL decoding and path normalization
 ; Include with: XIncludeFile "UrlHelper.pbi"
 ; Provides: URLDecodePath(s.s), NormalizePath(s.s)
 EnableExplicit

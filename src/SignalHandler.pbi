@@ -1,4 +1,4 @@
-; SignalHandler.pbi — POSIX signal handling for log reopen on SIGHUP
+﻿; SignalHandler.pbi — POSIX signal handling for log reopen on SIGHUP
 ; Include with: XIncludeFile "SignalHandler.pbi"
 ; Provides: InstallSignalHandlers(), RemoveSignalHandlers()
 ;

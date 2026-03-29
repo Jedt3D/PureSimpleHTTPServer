@@ -1,4 +1,4 @@
-; DirectoryListing.pbi — HTML directory browse page generator
+﻿; DirectoryListing.pbi — HTML directory browse page generator
 ; Include with: XIncludeFile "DirectoryListing.pbi"
 ; Provides: BuildDirectoryListing(dirPath.s, urlPath.s) -> String
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi):

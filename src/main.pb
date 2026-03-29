@@ -1,4 +1,4 @@
-; main.pb — PureSimpleHTTPServer entry point
+﻿; main.pb — PureSimpleHTTPServer entry point
 ; Compile as console app (thread-safe mode required):
 ;   pbcompiler -cl -t -o PureSimpleHTTPServer src/main.pb
 ;

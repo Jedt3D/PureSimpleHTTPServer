@@ -1,4 +1,4 @@
-; Middleware.pbi — middleware chain infrastructure + individual middleware
+﻿; Middleware.pbi — middleware chain infrastructure + individual middleware
 ; Include with: XIncludeFile "Middleware.pbi"
 ; Provides: RegisterMiddleware(), CallNext(), RunRequest(), BuildChain()
 ;           FillErrorResponse, Middleware_Rewrite, Middleware_HealthCheck,

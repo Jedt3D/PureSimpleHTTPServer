@@ -1,4 +1,4 @@
-; test_embedded_assets.pb — Unit tests for EmbeddedAssets.pbi
+﻿; test_embedded_assets.pb — Unit tests for EmbeddedAssets.pbi
 ; Phase D: tests the graceful no-pack fallback.
 ; Full pack tests require an embedded zip (tested via the binary build).
 EnableExplicit

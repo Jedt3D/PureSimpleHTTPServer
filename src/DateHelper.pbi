@@ -1,4 +1,4 @@
-; DateHelper.pbi — RFC 7231 HTTP date formatting
+﻿; DateHelper.pbi — RFC 7231 HTTP date formatting
 ; Include with: XIncludeFile "DateHelper.pbi"
 ; Provides: HTTPDate(ts.q) -> String
 EnableExplicit

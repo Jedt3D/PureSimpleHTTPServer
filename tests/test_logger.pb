@@ -1,4 +1,4 @@
-; test_logger.pb — Unit tests for Logger.pbi
+﻿; test_logger.pb — Unit tests for Logger.pbi
 ; Phase F-1: CLF access log, error log, ApacheDate, log level filtering
 ; Phase F-2: Size-based rotation, archive naming, keep-count pruning
 EnableExplicit

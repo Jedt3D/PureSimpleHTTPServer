@@ -1,4 +1,4 @@
-; FileServer.pbi — static file serving from disk
+﻿; FileServer.pbi — static file serving from disk
 ; Include with: XIncludeFile "FileServer.pbi"
 ; Provides: ServeFile(), ResolveIndexFile(), BuildETag(), IsHiddenPath()
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi):

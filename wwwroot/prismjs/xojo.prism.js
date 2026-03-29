@@ -2,54 +2,54 @@
  * Prism.js language definition for Xojo
  * https://github.com/worajedt/xojo-syntax-highlight
  *
- * Xojo เป็นภาษาโปรแกรมที่พัฒนาต่อมาจาก BASIC รองรับการสร้างแอป Desktop/Web/Mobile
- * ไฟล์นี้กำหนด grammar สำหรับ Prism.js เพื่อ highlight code Xojo ได้ถูกต้อง
+ * Xojo is a programming language evolved from BASIC, supporting Desktop/Web/Mobile app development.
+ * This file defines a grammar for Prism.js to correctly highlight Xojo code.
  *
- * ครอบคลุมรูปแบบต่อไปนี้:
- *   - ความคิดเห็น // และ ' (apostrophe)
- *   - String ในเครื่องหมายคำพูดคู่
- *   - ตัวเลขแบบทศนิยม, &h hex, &b binary
- *   - คำสงวน Xojo เฉพาะ เช่น Var, Nil, Self, Super, #tag
+ * Covers the following patterns:
+ *   - Comments: // and ' (apostrophe)
+ *   - Double-quoted strings
+ *   - Decimal numbers, &h hex, &b binary
+ *   - Xojo-specific reserved words such as Var, Nil, Self, Super, #tag
  *
- * วิธีใช้:
- *   โหลดไฟล์นี้หลัง prism.js แล้วใช้ language 'xojo' ใน code block
+ * Usage:
+ *   Load this file after prism.js, then use language 'xojo' in code blocks
  *   <pre><code class="language-xojo">...</code></pre>
  *
- * หลักการทำงานของ Prism.js:
- *   Prism จะ match pattern ตามลำดับใน object ด้านล่าง
- *   pattern ที่อยู่ก่อนมี priority สูงกว่า (first match wins)
- *   greedy: true ป้องกัน Prism จากการ re-tokenize ข้อความที่ match แล้ว
+ * How Prism.js works:
+ *   Prism matches patterns in the order defined in the object below.
+ *   Earlier patterns have higher priority (first match wins).
+ *   greedy: true prevents Prism from re-tokenizing already matched text.
  */
 (function (Prism) {
   Prism.languages['xojo'] = {
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 1. ความคิดเห็น (Comments) — ต้องอยู่อันดับแรกเสมอ
+    // 1. Comments — must always come first
     //
-    // ต้องมาก่อน string และ keyword เพื่อป้องกัน:
-    //   - keyword ใน comment ถูก highlight (เช่น // Return this value)
-    //   - string ใน comment ถูก match เป็น string token
+    // Must come before string and keyword to prevent:
+    //   - Keywords in comments being highlighted (e.g. // Return this value)
+    //   - Strings in comments being matched as string tokens
     //
-    // greedy: true → เมื่อ match แล้ว Prism จะไม่ลอง match pattern อื่นข้างใน
+    // greedy: true → once matched, Prism will not try to match other patterns inside
     // ────────────────────────────────────────────────────────────────────────────
     'comment': [
-      // // line comment — match ตั้งแต่ // จนสุดบรรทัด
+      // // line comment — match from // to end of line
       { pattern: /\/\/.*/, greedy: true },
 
-      // ' apostrophe comment — Xojo รองรับ ' เป็น comment แบบ BASIC ดั้งเดิม
-      // ใช้ [^\r\n]* แทน .* เพราะ Prism 1.29+ ไม่รองรับ flags option บน pattern object
-      // (การใช้ /.*/m หรือ flags: 'm' จะถูก ignore อย่างเงียบๆ)
+      // ' apostrophe comment — Xojo supports ' as a legacy BASIC-style comment
+      // Uses [^\r\n]* instead of .* because Prism 1.29+ does not support flags option on pattern objects
+      // (using /.*/m or flags: 'm' will be silently ignored)
       { pattern: /'[^\r\n]*/, greedy: true },
     ],
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 2. String (ข้อความในเครื่องหมายคำพูด)
+    // 2. String (quoted text)
     //
-    // match "..." โดยไม่ให้ข้ามบรรทัด ([^"\n]*)
-    // Xojo ไม่รองรับ multiline string — ถ้า " เปิดไม่มี " ปิดในบรรทัดเดียวกัน
-    // pattern จะหยุดที่ท้ายบรรทัดเอง
+    // Match "..." without spanning lines ([^"\n]*)
+    // Xojo does not support multiline strings — if an opening " has no closing " on the same line
+    // the pattern will stop at end of line
     //
-    // greedy: true ป้องกัน Prism ไม่ให้ match keyword/number ข้างใน string
+    // greedy: true prevents Prism from matching keywords/numbers inside the string
     // ────────────────────────────────────────────────────────────────────────────
     'string': {
       pattern: /"[^"\n]*"/,
@@ -59,18 +59,18 @@
     // ────────────────────────────────────────────────────────────────────────────
     // 3. Preprocessor directives (#tag, #pragma, #if, ...)
     //
-    // match ทั้งบรรทัดที่ขึ้นต้นด้วย # ตามด้วย directive ที่รู้จัก จนถึงสุดบรรทัด
+    // Match the entire line starting with # followed by a known directive to end of line
     // Pattern: /#(?:tag|pragma|if|elseif|else|endif|region|endregion)\b[^\r\n]*/i
     //
-    // greedy: true → สำคัญมาก! ป้องกัน Prism ไม่ให้ match pattern อื่นข้างใน
-    //   preprocessor line เช่น "Module" ใน "#tag Module, Name = Utils"
-    //   จะไม่ถูก highlight เป็น keyword เพราะทั้งบรรทัดเป็น token เดียวกัน
+    // greedy: true → critical! Prevents Prism from matching other patterns inside
+    //   the preprocessor line, e.g. "Module" in "#tag Module, Name = Utils"
+    //   will not be highlighted as a keyword because the entire line is a single token
     //
-    // alias: 'meta' → ทำให้ Prism ใช้ CSS class .token.meta สำหรับสีพิเศษ
-    //   ต้องเพิ่ม CSS rule .token.meta { color: ... } เอง เพราะ Prism themes ไม่มี
+    // alias: 'meta' → makes Prism use CSS class .token.meta for special coloring
+    //   You need to add a CSS rule .token.meta { color: ... } since Prism themes don't include it
     //
-    // inside → กำหนด sub-pattern ภายใน token ที่ match แล้ว
-    //   ทำให้ highlight เพิ่มเติมภายใน context ของ preprocessor token
+    // inside → defines sub-patterns within the already matched token
+    //   Enables additional highlighting within the context of the preprocessor token
     // ────────────────────────────────────────────────────────────────────────────
     'preprocessor': {
       pattern: /#(?:tag|pragma|if|elseif|else|endif|region|endregion)\b[^\r\n]*/i,
@@ -78,11 +78,11 @@
       alias: 'meta',
       inside: {
         // ─── Sub-highlight: directive keyword ─────────────────────────────────
-        // เมื่อ match ทั้งบรรทัดเป็น preprocessor แล้ว
-        // inside จะ highlight เฉพาะส่วน #directive เพิ่มเติมด้วยสี keyword
+        // After matching the entire line as preprocessor,
+        // inside additionally highlights just the #directive portion with keyword color
         //
-        // /^#\w+/ match ตั้งแต่ต้น token (^) จนถึงสุดคำ
-        // alias: 'keyword' → ใช้สีเดียวกับ keyword (สว่างกว่าสี meta)
+        // /^#\w+/ matches from start of token (^) to end of word
+        // alias: 'keyword' → uses the same color as keywords (brighter than meta color)
         // ─────────────────────────────────────────────────────────────────────
         'directive': {
           pattern: /^#\w+/,
@@ -92,27 +92,27 @@
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 4. Keywords — คำสงวนของภาษา Xojo
+    // 4. Keywords — Xojo reserved words
     //
-    // \b...\b คือ word boundary ทำให้ match เฉพาะคำที่อยู่โดดๆ
-    // เช่น "Integer" จะ match แต่ "MyInteger" จะไม่ match
-    // flag /i ทำให้ match แบบ case-insensitive
+    // \b...\b is a word boundary ensuring only standalone words match
+    // e.g. "Integer" will match but "MyInteger" will not
+    // The /i flag enables case-insensitive matching
     // ────────────────────────────────────────────────────────────────────────────
     'keyword': {
       pattern: /\b(?:Var|Dim|Sub|Function|Class|Module|Interface|Enum|If|Then|Else|ElseIf|End|For|Each|Next|While|Wend|Do|Loop|Until|Select|Case|Break|Continue|Try|Catch|Finally|Raise|RaiseEvent|Return|Exit|New|Inherits|Implements|Extends|AddHandler|RemoveHandler|Public|Private|Protected|Static|Shared|Global|Override|Virtual|Final|Abstract|Property|Event|Delegate|ParamArray|Optional|As|ByRef|ByVal|Of|Call|Using|Namespace)\b/i,
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 5. Operator keywords — ตัวดำเนินการแบบคำ
+    // 5. Operator keywords — word-based operators
     //
     // And, Or, Not, Xor → logical operators
-    // Mod               → modulo (หารเอาเศษ)
-    // In                → membership check (ใช้ใน For Each)
+    // Mod               → modulo (remainder division)
+    // In                → membership check (used in For Each)
     // Is, IsA, Isa      → type/nil checking
-    // AddressOf         → ได้ pointer ไปยัง method
+    // AddressOf         → get pointer to method
     //
-    // alias: 'operator' → Prism ใช้ CSS class .token.operator
-    //   ทำให้สีต่างจาก keyword ปกติในบางธีม
+    // alias: 'operator' → Prism uses CSS class .token.operator
+    //   giving it a different color from regular keywords in some themes
     // ────────────────────────────────────────────────────────────────────────────
     'operator-keyword': {
       pattern: /\b(?:And|Or|Not|Xor|Mod|In|Is|IsA|Isa|AddressOf|WeakAddressOf)\b/i,
@@ -120,13 +120,13 @@
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 6. Built-in references — อ้างอิงไปยัง object ปัจจุบัน
+    // 6. Built-in references — references to the current object
     //
-    //   Self  → เทียบเท่า 'this' ใน Java/C# — อ้างอิง instance ปัจจุบัน
-    //   Super → เรียก method ของ parent class
-    //   Me    → ชื่อเก่าของ Self (ยังใช้ได้เพื่อ backward compatibility)
+    //   Self  → equivalent to 'this' in Java/C# — reference to current instance
+    //   Super → call parent class method
+    //   Me    → legacy name for Self (still supported for backward compatibility)
     //
-    // alias: 'keyword' → ใช้สีเดียวกับ keyword ปกติ
+    // alias: 'keyword' → uses the same color as regular keywords
     // ────────────────────────────────────────────────────────────────────────────
     'builtin': {
       pattern: /\b(?:Self|Super|Me)\b/i,
@@ -134,29 +134,29 @@
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 7. Boolean literals — ค่าคงที่แบบ boolean
+    // 7. Boolean literals — boolean constant values
     //
-    //   True / False → ค่า boolean ปกติ
-    //   Nil          → ค่า null ของ Xojo (เทียบเท่า null ใน C#)
+    //   True / False → standard boolean values
+    //   Nil          → Xojo's null value (equivalent to null in C#)
     // ────────────────────────────────────────────────────────────────────────────
     'boolean': {
       pattern: /\b(?:True|False|Nil)\b/i,
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 8. Data types (ชนิดข้อมูล)
+    // 8. Data types
     //
-    // ครอบคลุม built-in types ทั้งหมดของ Xojo:
-    //   Integer, Int8-Int64 → จำนวนเต็มมีเครื่องหมาย (signed)
-    //   UInt8-UInt64        → จำนวนเต็มไม่มีเครื่องหมาย (unsigned)
-    //   Single, Double      → ทศนิยม 32/64-bit
-    //   Boolean, String     → ชนิดพื้นฐาน
-    //   Variant             → ชนิดข้อมูลยืดหยุ่น
-    //   Object, Color, Ptr  → ชนิดพิเศษ
-    //   CString, WString    → string สำหรับเชื่อมต่อกับ C API
+    // Covers all Xojo built-in types:
+    //   Integer, Int8-Int64 → signed integers
+    //   UInt8-UInt64        → unsigned integers
+    //   Single, Double      → 32/64-bit floating point
+    //   Boolean, String     → basic types
+    //   Variant             → flexible data type
+    //   Object, Color, Ptr  → special types
+    //   CString, WString    → strings for C API interop
     //
-    // alias: 'class-name' → Prism themes มักจะมีสี .token.class-name (เช่น cyan)
-    //   เหมาะสำหรับ type name มากกว่า .token.type ที่ไม่มีในทุก theme
+    // alias: 'class-name' → Prism themes usually have a color for .token.class-name (e.g. cyan)
+    //   more suitable for type names than .token.type which isn't in all themes
     // ────────────────────────────────────────────────────────────────────────────
     'type': {
       pattern: /\b(?:Integer|Int8|Int16|Int32|Int64|UInt8|UInt16|UInt32|UInt64|Single|Double|Boolean|String|Variant|Object|Color|Ptr|Auto|CString|WString)\b/i,
@@ -164,35 +164,35 @@
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 9. Number literals (ตัวเลข)
+    // 9. Number literals
     //
-    // รองรับรูปแบบ Xojo ทั้งหมด:
-    //   &hFF00FF   → hex literal (ขึ้นต้นด้วย &h หรือ &H)
-    //   &b10101010 → binary literal (ขึ้นต้นด้วย &b หรือ &B)
-    //   42         → จำนวนเต็ม
-    //   3.14       → เลขทศนิยม
+    // Supports all Xojo formats:
+    //   &hFF00FF   → hex literal (prefixed with &h or &H)
+    //   &b10101010 → binary literal (prefixed with &b or &B)
+    //   42         → integer
+    //   3.14       → decimal float
     //   1e6        → scientific notation
     //
-    // สำคัญ: &h และ &b ต้องอยู่ก่อนในลำดับ alternation (|)
-    //   เพราะ & อาจ match เป็น operator ได้ถ้า Prism ประมวลผลทีละตัว
+    // Important: &h and &b must come first in the alternation (|)
+    //   because & could be matched as an operator if Prism processes character by character
     // ────────────────────────────────────────────────────────────────────────────
     'number': {
       pattern: /&[hH][0-9a-fA-F]+\b|&[bB][01]+\b|\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/,
     },
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 10. ตัวดำเนินการแบบสัญลักษณ์ (Symbolic operators)
+    // 10. Symbolic operators
     //
-    // match สัญลักษณ์: <, >, !, +, -, *, /, &, |, ^, =
-    // พร้อม compound: <=, >=, <>, <<, >>
+    // Match symbols: <, >, !, +, -, *, /, &, |, ^, =
+    // Including compound: <=, >=, <>, <<, >>
     // ────────────────────────────────────────────────────────────────────────────
     'operator': /[<>!=+\-*\/&|^]=?|[<>]{2}/,
 
     // ────────────────────────────────────────────────────────────────────────────
-    // 11. เครื่องหมายวรรคตอน (Punctuation)
+    // 11. Punctuation
     //
-    // { } ( ) [ ] . , ; : — ไม่ highlight แยกสี แต่ต้อง match เพื่อให้ Prism
-    // ประมวลผล token เหล่านี้ได้ถูกต้องและไม่ตกค้างเป็น plain text
+    // { } ( ) [ ] . , ; : — not highlighted with a special color but must be matched
+    // so Prism processes these tokens correctly and they don't remain as plain text
     // ────────────────────────────────────────────────────────────────────────────
     'punctuation': /[{}()\[\].,;:]/,
   };

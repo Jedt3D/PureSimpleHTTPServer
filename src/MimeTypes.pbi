@@ -1,4 +1,4 @@
-; MimeTypes.pbi — MIME type lookup table
+﻿; MimeTypes.pbi — MIME type lookup table
 ; Include with: XIncludeFile "MimeTypes.pbi"
 ; Provides: GetMimeType(extension.s) -> String
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): (none)

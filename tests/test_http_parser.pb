@@ -1,4 +1,4 @@
-; test_http_parser.pb — Unit tests for HttpParser.pbi
+﻿; test_http_parser.pb — Unit tests for HttpParser.pbi
 ; Tests: ParseHttpRequest(), GetHeader()
 ; Note: HttpParser.pbi transitively includes Types.pbi, UrlHelper.pbi, Global.pbi
 EnableExplicit

@@ -1,4 +1,4 @@
-; RewriteEngine.pbi — URL rewrite and redirect rules (Caddy-compatible subset)
+﻿; RewriteEngine.pbi — URL rewrite and redirect rules (Caddy-compatible subset)
 ; Include with: XIncludeFile "RewriteEngine.pbi"
 ;
 ; Rule file syntax (rewrite.conf):

@@ -1,4 +1,4 @@
-; Global.pbi — application-wide constants, enumerations, version
+﻿; Global.pbi — application-wide constants, enumerations, version
 ; Include with: XIncludeFile "Global.pbi"
 EnableExplicit
 

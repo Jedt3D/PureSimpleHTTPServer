@@ -1,4 +1,4 @@
-; AutoTLS.pbi — automatic TLS certificate management via acme.sh
+﻿; AutoTLS.pbi — automatic TLS certificate management via acme.sh
 ; Include with: XIncludeFile "AutoTLS.pbi"
 ; Provides: GetCertPath(), GetKeyPath(), CertificateExists(),
 ;           IssueCertificate(), RenewCertificate(),

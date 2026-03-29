@@ -10,7 +10,7 @@ from pygments import highlight
 from pygments.formatters import HtmlFormatter
 
 # ──────────────────────────────────────────────────────────────────────────────
-# โหลด XojoLexer จาก xojo.pygments.py
+# Load XojoLexer from xojo.pygments.py
 # ──────────────────────────────────────────────────────────────────────────────
 _lexer_path = os.path.join(os.path.dirname(__file__), '..', 'xojo.pygments.py')
 _spec = importlib.util.spec_from_file_location('xojo_pygments', _lexer_path)
@@ -20,7 +20,7 @@ XojoLexer = _mod.XojoLexer
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Sample Xojo code — ครอบคลุม token types ทั้งหมด
+# Sample Xojo code — covers all token types
 # ──────────────────────────────────────────────────────────────────────────────
 SAMPLE_CODE = '''\
 #pragma DisableBackgroundTasks

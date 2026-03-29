@@ -1,4 +1,4 @@
-; test_middleware.pb — Unit tests for individual middleware procedures
+﻿; test_middleware.pb — Unit tests for individual middleware procedures
 ; Tests middleware in isolation by calling them directly with crafted structures.
 EnableExplicit
 XIncludeFile "TestCommon.pbi"

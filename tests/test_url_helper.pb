@@ -1,4 +1,4 @@
-; test_url_helper.pb — Unit tests for UrlHelper.pbi
+﻿; test_url_helper.pb — Unit tests for UrlHelper.pbi
 ; Tests: URLDecodePath(), NormalizePath()
 EnableExplicit
 XIncludeFile "TestCommon.pbi"

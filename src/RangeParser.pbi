@@ -1,4 +1,4 @@
-; RangeParser.pbi — HTTP Range header parser and partial-content sender
+﻿; RangeParser.pbi — HTTP Range header parser and partial-content sender
 ; Include with: XIncludeFile "RangeParser.pbi"
 ; Provides: ParseRangeHeader(), SendPartialResponse()
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi):

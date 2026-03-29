@@ -1,4 +1,4 @@
-; TcpServer.pbi — TCP server wrapper for HTTP connections
+﻿; TcpServer.pbi — TCP server wrapper for HTTP connections
 ; Include with: XIncludeFile "TcpServer.pbi"
 ; Provides: StartServer(), StopServer(), RestartServer(), g_Handler
 ;

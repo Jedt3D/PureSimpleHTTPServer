@@ -1,4 +1,4 @@
-; test_rewrite.pb — Unit tests for RewriteEngine.pbi
+﻿; test_rewrite.pb — Unit tests for RewriteEngine.pbi
 ; Phase G: URL rewriting (exact, glob, regex; rewrite and redir; per-dir cache)
 EnableExplicit
 XIncludeFile "TestCommon.pbi"

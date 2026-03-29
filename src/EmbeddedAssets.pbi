@@ -1,4 +1,4 @@
-; EmbeddedAssets.pbi — in-memory asset serving via IncludeBinary + CatchPack
+﻿; EmbeddedAssets.pbi — in-memory asset serving via IncludeBinary + CatchPack
 ; Include with: XIncludeFile "EmbeddedAssets.pbi"
 ; Provides: OpenEmbeddedPack(), ServeEmbeddedFile(), CloseEmbeddedPack()
 ;

@@ -1,4 +1,4 @@
-; HttpParser.pbi — HTTP/1.1 request parser
+﻿; HttpParser.pbi — HTTP/1.1 request parser
 ; Include with: XIncludeFile "HttpParser.pbi"
 ; Provides: ParseHttpRequest(), GetHeader()
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Types.pbi, UrlHelper.pbi

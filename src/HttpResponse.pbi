@@ -1,4 +1,4 @@
-; HttpResponse.pbi — HTTP/1.1 response builder
+﻿; HttpResponse.pbi — HTTP/1.1 response builder
 ; Include with: XIncludeFile "HttpResponse.pbi"
 ; Provides: StatusText(), BuildResponseHeaders(), SendTextResponse(), FillTextResponse()
 ; Dependencies (managed by main.pb and tests/TestCommon.pbi): Global.pbi, Types.pbi

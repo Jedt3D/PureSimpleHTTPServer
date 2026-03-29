@@ -1,4 +1,4 @@
-; test_date_helper.pb — Unit tests for DateHelper.pbi
+﻿; test_date_helper.pb — Unit tests for DateHelper.pbi
 ; Tests: HTTPDate() RFC 7231 formatting
 EnableExplicit
 XIncludeFile "TestCommon.pbi"

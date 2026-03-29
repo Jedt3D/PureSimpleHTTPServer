@@ -1,4 +1,4 @@
-; test_file_server.pb — Unit tests for FileServer.pbi
+﻿; test_file_server.pb — Unit tests for FileServer.pbi
 EnableExplicit
 XIncludeFile "TestCommon.pbi"
 
