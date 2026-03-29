@@ -12,7 +12,7 @@
 ; - Silent installation support
 
 !define APP_NAME "PureSimpleHTTPServer"
-!define APP_VERSION "1.6.1"
+!define APP_VERSION "2.5.0"
 !define APP_PUBLISHER "PureSimpleHTTPServer"
 !define APP_URL "https://github.com/woraj/PureSimpleHTTPServer"
 !define APP_EXE "PureSimpleHTTPServer.exe"
@@ -25,7 +25,7 @@ SetCompressor lzma
 
 ; General settings
 Name "${APP_NAME} ${APP_VERSION}"
-OutFile "dist\${APP_NAME}-${APP_VERSION}-windows-setup.exe"
+OutFile "..\dist\${APP_NAME}-${APP_VERSION}-windows-setup.exe"
 InstallDir "$PROGRAMFILES\${APP_NAME}"
 InstallDirRegKey HKLM "Software\${APP_NAME}" "InstallLocation"
 RequestExecutionLevel admin
@@ -35,15 +35,10 @@ Var StartMenuFolder
 
 ; Interface Settings
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\icon.ico"
-!define MUI_UNICON "assets\icon.ico"
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "installer\header.bmp" ; Optional: 150x57 bitmap
-!define MUI_WELCOMEFINISHPAGE_BITMAP "installer\wizard.bmp" ; Optional: 164x314 bitmap
 
 ; Pages
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_LICENSE "..\LICENSE"
 !insertmacro MUI_PAGE_COMPONENTS
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_STARTMENU Application $StartMenuFolder
@@ -65,16 +60,16 @@ Section "Main Files" SEC01
   SetOutPath $INSTDIR
 
   ; Main executable
-  File "dist\${APP_EXE}"
+  File "..\dist\${APP_EXE}"
 
   ; Web root directory with sample file
-  File /r "wwwroot"
+  File /r "..\wwwroot"
 
   ; Documentation
-  File "README.txt"
-  File "LICENSE.txt"
-  File "CHANGELOG.txt"
-  File "quickstart.txt"
+  File "..\README.txt"
+  File "..\LICENSE.txt"
+  File "..\CHANGELOG.txt"
+  File "..\quickstart.txt"
 
   ; Store installation directory
   WriteRegStr HKLM "Software\${APP_NAME}" "InstallLocation" $INSTDIR
@@ -180,14 +175,7 @@ SectionEnd
 
 ; Silent Installation Support
 Function .onInit
-  ; Check for silent mode
-  IfSilent silent+2
-    Return
-
-  silent:
-  ; Default selections for silent install
-  ; Main files, Start Menu, Service, no desktop shortcut
-  SetSilent silent
+  ; Nothing special needed on init
 FunctionEnd
 
 ; Installation Callbacks

@@ -37,6 +37,10 @@ CompilerEndIf
 
 XIncludeFile "Global.pbi"
 XIncludeFile "Types.pbi"
+
+; g_Config — server configuration (declared before includes that reference it via Shared)
+Global g_Config.ServerConfig
+
 XIncludeFile "DateHelper.pbi"
 XIncludeFile "UrlHelper.pbi"
 XIncludeFile "HttpParser.pbi"
@@ -54,9 +58,6 @@ XIncludeFile "Middleware.pbi"
 XIncludeFile "AutoTLS.pbi"
 XIncludeFile "SignalHandler.pbi"
 XIncludeFile "WindowsService.pbi"
-
-; g_Config — server configuration (global so RunRequest can access it)
-Global g_Config.ServerConfig
 
 ; RunRequestWrapper — thin wrapper matching ConnectionHandlerProto signature
 ; Bridges g_Handler (2 args) to RunRequest (3 args) by passing g_Config.
